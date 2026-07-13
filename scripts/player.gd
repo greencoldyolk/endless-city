@@ -121,6 +121,10 @@ func _ready() -> void:
 	_snd_steps_dry.stream.loop = true
 	_snd_steps_wet = _make_sound("res://assets/sounds/run-wet.mp3", STEP_WET_VOL)
 	_snd_steps_wet.stream.loop = true
+	# 脚步和落地走环境声总线：电台开着时会被整体压低闷化
+	_snd_steps_dry.bus = "Ambient"
+	_snd_steps_wet.bus = "Ambient"
+	_snd_land.bus = "Ambient"
 	# 电台碎片（assets/music 因版权不入库，文件缺失时自动退回通用提示音）
 	for path in ["res://assets/music/radio-a.wav", "res://assets/music/radio-b.wav",
 			"res://assets/music/piano-1.wav", "res://assets/music/piano-2.wav"]:

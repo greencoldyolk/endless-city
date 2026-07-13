@@ -22,10 +22,46 @@ var ground_y := SCREEN_H * SURFACE_FRACTION
 var obstacles: Array = []  # {rect: Rect2, hit: bool, node: ColorRect}
 var pickups: Array = []    # {rect: Rect2, taken: bool, node: Node2D}
 
-var _mood_fill: ColorRect
 var _baked: Dictionary = {}
 var _scene_scale := 1.0
 var _scene_w := 0.0
+
+# --- UI（左下心情面板 + 右上电台开关）---
+var _ui_font: FontFile
+var _lbl_mood: Label
+var _mood_pill: MoodPill
+var _lbl_station: Label
+var _lbl_fm: Label
+var _radio_icon: TextureRect
+var _bgm: AudioStreamPlayer
+var _radio_idx := -1  # -1=关，0/1=两个台
+
+
+## 云朵小图标（心情/天气共用）
+class CloudIcon extends Control:
+	var tint := Color(0.82, 0.85, 0.92, 0.9)
+
+	func _draw() -> void:
+		draw_circle(Vector2(10, 14), 7.0, tint)
+		draw_circle(Vector2(19, 10), 9.0, tint)
+		draw_circle(Vector2(28, 15), 6.5, tint)
+		draw_rect(Rect2(9, 14, 20, 7), tint)
+
+
+## 心情胶囊条：圆角轨道 + 柔和蓝紫填充
+class MoodPill extends Control:
+	var value := 1.0
+
+	func _draw() -> void:
+		var track := StyleBoxFlat.new()
+		track.bg_color = Color(1, 1, 1, 0.10)
+		track.set_corner_radius_all(7)
+		draw_style_box(track, Rect2(Vector2.ZERO, size))
+		var fill := StyleBoxFlat.new()
+		fill.bg_color = Color(0.62, 0.66, 0.9, 0.85)
+		fill.set_corner_radius_all(7)
+		var w: float = max(size.y, size.x * value)
+		draw_style_box(fill, Rect2(Vector2.ZERO, Vector2(w, size.y)))
 
 
 ## 障碍物的贴地软影（一个节点画全部，椭圆软斑和角色接触影同一语言）
@@ -126,6 +162,15 @@ func _ready() -> void:
 	_generate_obstacles()
 	_generate_pickups()
 
+	# --- 环境声总线：电台开着时整体压低+低通闷化，世界退到音乐后面 ---
+	var bus_idx := AudioServer.bus_count
+	AudioServer.add_bus(bus_idx)
+	AudioServer.set_bus_name(bus_idx, "Ambient")
+	AudioServer.set_bus_send(bus_idx, "Master")
+	var lp := AudioEffectLowPassFilter.new()
+	lp.cutoff_hz = 20000.0
+	AudioServer.add_bus_effect(bus_idx, lp)
+
 	# --- 玩家 ---
 	player = load("res://scripts/player.gd").new()
 	player.ground_y = ground_y
@@ -141,33 +186,135 @@ func _ready() -> void:
 	wind.stream = load("res://assets/sounds/wind.mp3")
 	wind.stream.loop = true
 	wind.volume_db = linear_to_db(0.22)
+	wind.bus = "Ambient"
 	add_child(wind)
 	wind.play()
 
-	# --- 心情条（唯一常驻 UI）---
+	# --- UI：左下心情面板、右上电台开关、重开按钮 ---
+	_ui_font = load("res://assets/fonts/ui-font.otf")
 	var ui := CanvasLayer.new()
 	add_child(ui)
-	var bar_bg := ColorRect.new()
-	bar_bg.position = Vector2(24, 24)
-	bar_bg.size = Vector2(160, 6)
-	bar_bg.color = Color(0.16, 0.17, 0.19)
-	ui.add_child(bar_bg)
-	_mood_fill = ColorRect.new()
-	_mood_fill.position = Vector2(24, 24)
-	_mood_fill.size = Vector2(160, 6)
-	_mood_fill.color = Color(0.66, 0.7, 0.62)
-	ui.add_child(_mood_fill)
 
-	# --- 重开按钮（右上角，键盘 R 同效）---
+	# 左下：心情面板（云图标 + "心情/状态词" + 胶囊条）
+	var mood_panel := _make_panel(Vector2(24, SCREEN_H - 100), Vector2(252, 76))
+	ui.add_child(mood_panel)
+	var cloud := CloudIcon.new()
+	cloud.position = Vector2(18, 24)
+	mood_panel.add_child(cloud)
+	mood_panel.add_child(_make_label("心情", 14, Color(0.72, 0.74, 0.82, 0.75), Vector2(66, 12)))
+	_lbl_mood = _make_label("平静", 26, Color(0.9, 0.91, 0.95), Vector2(66, 30))
+	mood_panel.add_child(_lbl_mood)
+	_mood_pill = MoodPill.new()
+	_mood_pill.position = Vector2(168, 32)
+	_mood_pill.size = Vector2(64, 14)
+	mood_panel.add_child(_mood_pill)
+
+	# 右上：电台（台标文字 + 收音机图标按钮，点击开关背景音乐）
+	var radio_panel := _make_panel(Vector2(SCREEN_W - 352, 14), Vector2(272, 58))
+	ui.add_child(radio_panel)
+	_lbl_station = _make_label("电台 · 关", 14, Color(0.85, 0.86, 0.92, 0.5), Vector2(16, 9))
+	radio_panel.add_child(_lbl_station)
+	_lbl_fm = _make_label("轻点打开", 12, Color(0.72, 0.74, 0.82, 0.4), Vector2(16, 32))
+	radio_panel.add_child(_lbl_fm)
+	_radio_icon = TextureRect.new()
+	_radio_icon.texture = load("res://assets/items/radio.png")
+	_radio_icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_radio_icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	_radio_icon.position = Vector2(216, 9)
+	_radio_icon.size = Vector2(42, 40)
+	_radio_icon.modulate = Color(1, 1, 1, 0.45)
+	radio_panel.add_child(_radio_icon)
+	var radio_btn := Button.new()
+	radio_btn.flat = true
+	radio_btn.position = Vector2.ZERO
+	radio_btn.size = radio_panel.size
+	radio_btn.pressed.connect(_toggle_radio)
+	radio_panel.add_child(radio_btn)
+
+	# 背景音乐播放器（曲目在开台时随机挑）
+	_bgm = AudioStreamPlayer.new()
+	_bgm.volume_db = linear_to_db(0.3)
+	add_child(_bgm)
+
+	# 重开按钮（键盘 R 同效）
 	var restart := Button.new()
 	restart.text = "↺"
 	restart.flat = true
 	restart.add_theme_font_size_override("font_size", 34)
 	restart.add_theme_color_override("font_color", Color(0.75, 0.78, 0.74, 0.55))
-	restart.position = Vector2(SCREEN_W - 68, 12)
+	restart.position = Vector2(SCREEN_W - 68, 14)
 	restart.size = Vector2(52, 52)
 	restart.pressed.connect(func(): get_tree().reload_current_scene())
 	ui.add_child(restart)
+
+
+# 两首歌 = 两个台：点击循环 关 → 88.1 → 91.7 → 关
+const STATIONS := [
+	{"path": "res://assets/music/Rain Archive.mp3", "name": "旧电台 · Rain Archive", "fm": "88.1 FM · 轻点换台"},
+	{"path": "res://assets/music/Two Second Signal.mp3", "name": "旧电台 · Two Second Signal", "fm": "91.7 FM · 轻点换台"},
+]
+
+
+func _toggle_radio() -> void:
+	_radio_idx += 1
+	if _radio_idx >= STATIONS.size():
+		_radio_idx = -1
+
+	var ambient := AudioServer.get_bus_index("Ambient")
+	var lp: AudioEffectLowPassFilter = AudioServer.get_bus_effect(ambient, 0)
+	var tween := create_tween().set_parallel(true)
+
+	if _radio_idx >= 0 and ResourceLoader.exists(STATIONS[_radio_idx].path):
+		var st: Dictionary = STATIONS[_radio_idx]
+		_bgm.stream = load(st.path)
+		_bgm.stream.loop = true
+		_bgm.play()
+		_lbl_station.text = st.name
+		_lbl_station.add_theme_color_override("font_color", Color(0.9, 0.91, 0.95, 0.95))
+		_lbl_fm.text = st.fm
+		_radio_icon.modulate = Color(1, 1, 1, 1)
+		# 世界退后：环境声（风/脚步/落地）在 1.2 秒内压低并闷化
+		tween.tween_method(
+			func(v: float): AudioServer.set_bus_volume_db(ambient, v),
+			AudioServer.get_bus_volume_db(ambient), linear_to_db(0.3), 1.2)
+		tween.tween_method(
+			func(v: float): lp.cutoff_hz = v,
+			lp.cutoff_hz, 620.0, 1.2)
+	else:
+		_radio_idx = -1
+		_bgm.stop()
+		_lbl_station.text = "电台 · 关"
+		_lbl_station.add_theme_color_override("font_color", Color(0.85, 0.86, 0.92, 0.5))
+		_lbl_fm.text = "轻点打开"
+		_radio_icon.modulate = Color(1, 1, 1, 0.45)
+		# 世界回来：环境声恢复原样
+		tween.tween_method(
+			func(v: float): AudioServer.set_bus_volume_db(ambient, v),
+			AudioServer.get_bus_volume_db(ambient), 0.0, 1.2)
+		tween.tween_method(
+			func(v: float): lp.cutoff_hz = v,
+			lp.cutoff_hz, 20000.0, 1.2)
+
+
+func _make_panel(pos: Vector2, panel_size: Vector2) -> Panel:
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.05, 0.06, 0.1, 0.4)
+	style.set_corner_radius_all(16)
+	var panel := Panel.new()
+	panel.add_theme_stylebox_override("panel", style)
+	panel.position = pos
+	panel.size = panel_size
+	return panel
+
+
+func _make_label(text: String, font_size: int, color: Color, pos: Vector2) -> Label:
+	var lbl := Label.new()
+	lbl.text = text
+	lbl.position = pos
+	lbl.add_theme_font_override("font", _ui_font)
+	lbl.add_theme_font_size_override("font_size", font_size)
+	lbl.add_theme_color_override("font_color", color)
+	return lbl
 
 
 func _make_warm_light(pos: Vector2, energy: float, scale_factor: float) -> PointLight2D:
@@ -279,7 +426,19 @@ func _process(delta: float) -> void:
 	camera_x += (target - camera_x) * minf(1.0, CAMERA_SMOOTHING * delta)
 	world.position.x = -camera_x
 
-	_mood_fill.size.x = 160.0 * (player.mood / player.MOOD_MAX)
+	# 心情面板：数值藏进"词 + 胶囊"，不给玩家看数字
+	var pct: float = player.mood / player.MOOD_MAX
+	_mood_pill.value = pct
+	_mood_pill.queue_redraw()
+	var word := "平静"
+	if player.resting:
+		word = "休息中"
+	elif pct < 0.3:
+		word = "想坐一会儿"
+	elif pct < 0.65:
+		word = "有些低落"
+	if _lbl_mood.text != word:
+		_lbl_mood.text = word
 
 
 func _unhandled_input(event: InputEvent) -> void:
