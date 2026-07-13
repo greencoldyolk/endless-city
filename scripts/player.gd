@@ -58,7 +58,10 @@ var _scale_jump := 1.0
 var _snd_land: AudioStreamPlayer
 var _snd_pickup: AudioStreamPlayer
 var _snd_rest: AudioStreamPlayer
-var _snd_steps: AudioStreamPlayer
+var _snd_steps_dry: AudioStreamPlayer
+var _snd_steps_wet: AudioStreamPlayer
+var puddle_zones: Array = []  # 单个场景循环内的水坑区间（Vector2(x0,x1)，世界像素）
+var scene_loop_w := 0.0
 
 
 func _ready() -> void:
@@ -85,10 +88,13 @@ func _ready() -> void:
 	add_child(_sprite_next)
 
 	_snd_land = _make_sound("res://assets/sounds/land.mp3", 0.35)
-	_snd_pickup = _make_sound("res://assets/sounds/pickup.wav", 0.4)
+	_snd_pickup = _make_sound("res://assets/sounds/picup-new.mp3", 0.4)
 	_snd_rest = _make_sound("res://assets/sounds/rest.wav", 0.45)
-	_snd_steps = _make_sound("res://assets/sounds/run-wet.mp3", 0.3)
-	_snd_steps.stream.loop = true
+	# 脚步声两套：日常=普通跑步声，水坑=水花版（音量压低，尖锐感只做点缀）
+	_snd_steps_dry = _make_sound("res://assets/sounds/normal-running.mp3", 0.32)
+	_snd_steps_dry.stream.loop = true
+	_snd_steps_wet = _make_sound("res://assets/sounds/run-wet.mp3", 0.16)
+	_snd_steps_wet.stream.loop = true
 
 	position.y = ground_y - BOX_H
 
@@ -115,6 +121,13 @@ func _set_scale(frames: Array[Texture2D], target_height: float) -> float:
 	for f in frames:
 		tallest = max(tallest, f.get_height())
 	return target_height / tallest
+
+
+func _update_step_loop(p: AudioStreamPlayer, want: bool) -> void:
+	if want and not p.playing:
+		p.play()
+	elif not want and p.playing:
+		p.stop()
 
 
 func _make_sound(path: String, volume: float) -> AudioStreamPlayer:
@@ -157,9 +170,13 @@ func step(delta: float, world_width: float, obstacles: Array, pickups: Array) ->
 	var was_in_air := not on_ground
 	if position.y + BOX_H >= ground_y:
 		position.y = ground_y - BOX_H
+		var impact := vy
 		vy = 0.0
 		on_ground = true
 		if was_in_air:
+			# 落地响度按下坠速度定：满高度落下最重（0.26），擦地小跳只有闷响
+			var force: float = clamp(impact / absf(JUMP_SPEED), 0.3, 1.0)
+			_snd_land.volume_db = linear_to_db(0.26 * force)
 			_snd_land.play()
 			land_timer = 0.12
 
@@ -169,12 +186,18 @@ func step(delta: float, world_width: float, obstacles: Array, pickups: Array) ->
 		land_timer -= delta
 	idle_time += delta
 
-	# --- 脚步声：只在贴地奔跑时循环；起跳/减速/休息即停，不与跳跃落地音重叠 ---
+	# --- 脚步声：只在贴地奔跑时循环；起跳/减速/休息即停，不与跳跃落地音重叠。
+	# 踩在水坑区间里用水花版，其余路面用闷版 ---
 	var stepping := on_ground and not resting and vx > RUN_SPEED * 0.4
-	if stepping and not _snd_steps.playing:
-		_snd_steps.play()
-	elif not stepping and _snd_steps.playing:
-		_snd_steps.stop()
+	var in_puddle := false
+	if stepping and scene_loop_w > 0.0:
+		var sx := fposmod(position.x + BOX_W / 2.0, scene_loop_w)
+		for zone in puddle_zones:
+			if sx >= zone.x and sx <= zone.y:
+				in_puddle = true
+				break
+	_update_step_loop(_snd_steps_wet, stepping and in_puddle)
+	_update_step_loop(_snd_steps_dry, stepping and not in_puddle)
 
 	# --- 障碍与正向物品（心情系统）---
 	var box := Rect2(position.x, position.y, BOX_W, BOX_H)
