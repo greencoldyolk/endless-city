@@ -1,0 +1,11 @@
+# Godot
+.godot/
+*.translation
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+
+# OS
+.DS_Store
