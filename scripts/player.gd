@@ -58,6 +58,7 @@ var _scale_jump := 1.0
 var _snd_land: AudioStreamPlayer
 var _snd_pickup: AudioStreamPlayer
 var _snd_rest: AudioStreamPlayer
+var _snd_steps: AudioStreamPlayer
 
 
 func _ready() -> void:
@@ -75,15 +76,19 @@ func _ready() -> void:
 
 	_sprite = Sprite2D.new()
 	_sprite.modulate = Color(0.92, 0.9, 0.96)  # 轻微暮色环境调
+	_sprite.light_mask = 2  # 吃场景暖光源（光源只照角色层）
 	add_child(_sprite)
 	# 第二张精灵用于帧间交叉淡化：8帧动画在60帧世界里会显得"卡"，
 	# 当前帧和下一帧按进度混合后，感知流畅度接近翻倍
 	_sprite_next = Sprite2D.new()
+	_sprite_next.light_mask = 2
 	add_child(_sprite_next)
 
 	_snd_land = _make_sound("res://assets/sounds/land.mp3", 0.35)
 	_snd_pickup = _make_sound("res://assets/sounds/pickup.wav", 0.4)
 	_snd_rest = _make_sound("res://assets/sounds/rest.wav", 0.45)
+	_snd_steps = _make_sound("res://assets/sounds/run-wet.mp3", 0.3)
+	_snd_steps.stream.loop = true
 
 	position.y = ground_y - BOX_H
 
@@ -163,6 +168,13 @@ func step(delta: float, world_width: float, obstacles: Array, pickups: Array) ->
 	if land_timer > 0.0:
 		land_timer -= delta
 	idle_time += delta
+
+	# --- 脚步声：只在贴地奔跑时循环；起跳/减速/休息即停，不与跳跃落地音重叠 ---
+	var stepping := on_ground and not resting and vx > RUN_SPEED * 0.4
+	if stepping and not _snd_steps.playing:
+		_snd_steps.play()
+	elif not stepping and _snd_steps.playing:
+		_snd_steps.stop()
 
 	# --- 障碍与正向物品（心情系统）---
 	var box := Rect2(position.x, position.y, BOX_W, BOX_H)
@@ -259,9 +271,10 @@ func _update_sprite() -> void:
 	if hit_flash > 0.0:
 		_sprite.modulate = Color(1.25, 0.85, 0.85)
 	elif resting:
-		_sprite.modulate = Color(0.7, 0.7, 0.72)
+		_sprite.modulate = Color(0.52, 0.53, 0.58)
 	else:
-		_sprite.modulate = Color(0.92, 0.9, 0.96)
+		# 阴天暮色的环境调：压暗压冷，暖光源经过时由 PointLight2D 抬回来
+		_sprite.modulate = Color(0.72, 0.73, 0.83)
 
 	# 下一帧精灵：同位置同变换，透明度=帧进度
 	if next_texture != null:

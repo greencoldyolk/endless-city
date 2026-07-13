@@ -48,10 +48,17 @@ func _ready() -> void:
 		var data: Dictionary = JSON.parse_string(lights_file.get_as_text())
 		for light in data.lights:
 			for i in range(SCENE_LOOPS):
-				world.add_child(_make_warm_light(Vector2(
-					light.x * scene_scale + i * scene_w,
-					light.y * scene_scale
-				)))
+				world.add_child(_make_warm_light(
+					Vector2(light.x * scene_scale + i * scene_w,
+							light.y * scene_scale),
+					light.get("energy", 0.6),
+					light.get("scale", 2.0)
+				))
+
+	# 全场景轻微压暗（阴天暮色基调；UI 在独立 CanvasLayer 不受影响）
+	var dim := CanvasModulate.new()
+	dim.color = Color(0.9, 0.9, 0.94)
+	add_child(dim)
 
 	_generate_obstacles()
 	_generate_pickups()
@@ -61,6 +68,14 @@ func _ready() -> void:
 	player.ground_y = ground_y
 	player.position = Vector2(200, 0)
 	world.add_child(player)
+
+	# --- 环境声：风声常驻低音量循环 ---
+	var wind := AudioStreamPlayer.new()
+	wind.stream = load("res://assets/sounds/wind.mp3")
+	wind.stream.loop = true
+	wind.volume_db = linear_to_db(0.22)
+	add_child(wind)
+	wind.play()
 
 	# --- 心情条（唯一常驻 UI）---
 	var ui := CanvasLayer.new()
@@ -76,11 +91,24 @@ func _ready() -> void:
 	_mood_fill.color = Color(0.66, 0.7, 0.62)
 	ui.add_child(_mood_fill)
 
+	# --- 重开按钮（右上角，键盘 R 同效）---
+	var restart := Button.new()
+	restart.text = "↺"
+	restart.flat = true
+	restart.add_theme_font_size_override("font_size", 34)
+	restart.add_theme_color_override("font_color", Color(0.75, 0.78, 0.74, 0.55))
+	restart.position = Vector2(SCREEN_W - 68, 12)
+	restart.size = Vector2(52, 52)
+	restart.pressed.connect(func(): get_tree().reload_current_scene())
+	ui.add_child(restart)
 
-func _make_warm_light(pos: Vector2) -> PointLight2D:
+
+func _make_warm_light(pos: Vector2, energy: float, scale_factor: float) -> PointLight2D:
 	var gradient := Gradient.new()
+	# 三段衰减：中心亮核 → 缓坡 → 边缘归零，走近灯时亮度是渐进的
+	gradient.offsets = PackedFloat32Array([0.0, 0.4, 1.0])
 	gradient.colors = PackedColorArray([
-		Color(1, 1, 1, 1), Color(1, 1, 1, 0)
+		Color(1, 1, 1, 1), Color(1, 1, 1, 0.38), Color(1, 1, 1, 0)
 	])
 	var tex := GradientTexture2D.new()
 	tex.gradient = gradient
@@ -93,8 +121,11 @@ func _make_warm_light(pos: Vector2) -> PointLight2D:
 	light.texture = tex
 	light.position = pos
 	light.color = Color(1.0, 0.78, 0.5)
-	light.energy = 0.55
-	light.texture_scale = 1.6
+	light.energy = energy
+	light.texture_scale = scale_factor
+	# 只照角色（light_mask=2）：母图的光晕是烘焙死的，再叠动态光会过曝；
+	# 光源只管把路过的人"点亮"
+	light.range_item_cull_mask = 2
 	return light
 
 
@@ -144,7 +175,11 @@ func _process(delta: float) -> void:
 	_mood_fill.size.x = 160.0 * (player.mood / player.MOOD_MAX)
 
 
-func _input(event: InputEvent) -> void:
+func _unhandled_input(event: InputEvent) -> void:
+	# 用 _unhandled_input：被 UI（重开按钮）吃掉的点击不会再触发跳跃
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_R:
+		get_tree().reload_current_scene()
+		return
 	# 触屏：右半屏点按 = 跳，左半屏按住 = 减速（鼠标模拟同样生效）
 	if event is InputEventScreenTouch:
 		var half := get_viewport().get_visible_rect().size.x / 2.0

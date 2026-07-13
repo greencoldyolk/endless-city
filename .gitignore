@@ -1,11 +1,15 @@
 # Godot
 .godot/
 *.translation
+build/
 
 # Python
 .venv/
 __pycache__/
 *.py[cod]
+
+# Local HTTPS certs for tools/serve_web.py
+tools/certs/
 
 # OS
 .DS_Store
