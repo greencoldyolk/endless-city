@@ -60,6 +60,14 @@ var _snd_pickup: AudioStreamPlayer
 var _snd_rest: AudioStreamPlayer
 var _snd_steps_dry: AudioStreamPlayer
 var _snd_steps_wet: AudioStreamPlayer
+const STEP_DRY_VOL := 0.32
+const STEP_WET_VOL := 0.16
+const STEP_DUCK := 0.12  # 特殊音效（伞/电台碎片）播放时脚步几乎退场
+
+var _snd_radio: Array[AudioStreamPlayer] = []
+var _snd_radio_rare: Array[AudioStreamPlayer] = []
+var _snd_umbrella: AudioStreamPlayer
+var _step_duck := 1.0
 var puddle_zones: Array = []  # 单个场景循环内的水坑区间（Vector2(x0,x1)，世界像素）
 var scene_loop_w := 0.0
 
@@ -89,12 +97,22 @@ func _ready() -> void:
 
 	_snd_land = _make_sound("res://assets/sounds/land.mp3", 0.35)
 	_snd_pickup = _make_sound("res://assets/sounds/picup-new.mp3", 0.4)
+	_snd_umbrella = _make_sound("res://assets/sounds/umbrella-sound.mp3", 0.5)
 	_snd_rest = _make_sound("res://assets/sounds/rest.wav", 0.45)
 	# 脚步声两套：日常=普通跑步声，水坑=水花版（音量压低，尖锐感只做点缀）
-	_snd_steps_dry = _make_sound("res://assets/sounds/normal-running.mp3", 0.32)
+	_snd_steps_dry = _make_sound("res://assets/sounds/normal-running.mp3", STEP_DRY_VOL)
 	_snd_steps_dry.stream.loop = true
-	_snd_steps_wet = _make_sound("res://assets/sounds/run-wet.mp3", 0.16)
+	_snd_steps_wet = _make_sound("res://assets/sounds/run-wet.mp3", STEP_WET_VOL)
 	_snd_steps_wet.stream.loop = true
+	# 电台碎片（assets/music 因版权不入库，文件缺失时自动退回通用提示音）
+	for path in ["res://assets/music/radio-a.wav", "res://assets/music/radio-b.wav",
+			"res://assets/music/piano-1.wav", "res://assets/music/piano-2.wav"]:
+		if ResourceLoader.exists(path):
+			_snd_radio.append(_make_sound(path, 0.55))
+	# 低概率彩蛋：坏台杂音 / 无信号
+	for path in ["res://assets/music/radio-bad.wav", "res://assets/music/radio-nosignal.wav"]:
+		if ResourceLoader.exists(path):
+			_snd_radio_rare.append(_make_sound(path, 0.5))
 
 	position.y = ground_y - BOX_H
 
@@ -198,6 +216,13 @@ func step(delta: float, world_width: float, obstacles: Array, pickups: Array) ->
 				break
 	_update_step_loop(_snd_steps_wet, stepping and in_puddle)
 	_update_step_loop(_snd_steps_dry, stepping and not in_puddle)
+	# 闪避：伞/电台碎片这类"时刻音效"响起时脚步退后，播完平滑恢复
+	var special := _snd_umbrella.playing
+	for p in _snd_radio:
+		special = special or p.playing
+	_step_duck += ((STEP_DUCK if special else 1.0) - _step_duck) * minf(1.0, 8.0 * delta)
+	_snd_steps_dry.volume_db = linear_to_db(STEP_DRY_VOL * _step_duck)
+	_snd_steps_wet.volume_db = linear_to_db(STEP_WET_VOL * _step_duck)
 
 	# --- 障碍与正向物品（心情系统）---
 	var box := Rect2(position.x, position.y, BOX_W, BOX_H)
@@ -216,7 +241,18 @@ func step(delta: float, world_width: float, obstacles: Array, pickups: Array) ->
 		if not pickup.taken and box.intersects(pickup.rect):
 			pickup.taken = true
 			mood = min(MOOD_MAX, mood + MOOD_PICKUP_RESTORE)
-			_snd_pickup.play()
+			var item: String = pickup.get("item", "")
+			if item == "radio" and not _snd_radio.is_empty():
+				# 收音机的奖励就是那段被风吹散的旋律，不叠通用提示音；
+				# 小概率收到坏台/无信号——空城电台偶尔也会失灵
+				if not _snd_radio_rare.is_empty() and randf() < 0.1:
+					_snd_radio_rare.pick_random().play()
+				else:
+					_snd_radio.pick_random().play()
+			elif item == "umbrella":
+				_snd_umbrella.play()
+			else:
+				_snd_pickup.play()
 
 	# --- 休息：心情回满自动继续 ---
 	if resting:

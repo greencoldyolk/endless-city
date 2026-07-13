@@ -26,14 +26,17 @@ var _scene_scale := 1.0
 var _scene_w := 0.0
 
 
-## 售货机旁的咖啡：蜂蜜琥珀色的"保护泡"包着一罐咖啡，轻轻浮动缓慢呼吸。
+## 统一的可收集物语言：所有物件（咖啡/收音机/雨伞）都裹在同一种
+## 暖黄"空气团"里——远看只认一种暖黄泡，走近才知道里面是什么。
 ## 色谱是灰调琥珀（非街机金币黄）：中央 #E8CC83、外缘 #DDB65A、
-## 深轮廓 #A87938、左上小高光 #F3E0AC，不做整圈光晕
-class CoffeeBubble extends Node2D:
+## 薄轮廓 #A87938、左上小高光 #F3E0AC。轮廓带轻微不规则的缓慢波动，
+## 读作"暖空气"而不是"圆圈"
+class ItemBubble extends Node2D:
+	var item_tex: Texture2D
+	var item_h := 28.0
+	var item_tilt := 0.0
 	var _t := randf() * TAU
 	var _base_y := 0.0
-	var _can: Texture2D = load("res://assets/items/coffee-can.png")
-	var _bubble: Texture2D = load("res://assets/items/bubble.png")
 
 	func _ready() -> void:
 		_base_y = position.y
@@ -42,19 +45,27 @@ class CoffeeBubble extends Node2D:
 		_t += delta
 		position.y = _base_y + 6.0 * sin(_t * 1.3)
 		scale = Vector2.ONE * (1.0 + 0.05 * sin(_t * 2.1))  # 轻微呼吸
+		queue_redraw()  # 轮廓的不规则波动
 
 	func _draw() -> void:
-		# 三明治：气泡底 → 咖啡罐 → 半透明气泡膜罩在最上（罐子像泡在膜里）
-		var bw := 72.0
-		var bh := bw * _bubble.get_height() / _bubble.get_width()
-		var bubble_rect := Rect2(-bw / 2.0, -bh / 2.0, bw, bh)
-		draw_texture_rect(_bubble, bubble_rect, false)
-		var ch := 26.0
-		var cw := ch * _can.get_width() / _can.get_height()
-		draw_set_transform(Vector2.ZERO, 0.30, Vector2.ONE)  # 罐子向右倾约17度
-		draw_texture_rect(_can, Rect2(-cw / 2.0, -ch / 2.0, cw, ch), false)
+		# 轻微不规则的外形：像被托住的一团暖空气
+		var pts := PackedVector2Array()
+		for i in range(40):
+			var th := TAU * i / 40.0
+			var r := 33.0 + 2.0 * sin(3.0 * th + _t * 0.7) + 1.2 * sin(5.0 * th - _t * 0.5)
+			pts.append(Vector2(cos(th), sin(th)) * r)
+		draw_colored_polygon(pts, Color(Color("ddb65a"), 0.5))
+		# 中心比边缘更浅更透：淡淡的雾感梯度
+		draw_circle(Vector2.ZERO, 26.0, Color(Color("e8cc83"), 0.72))
+		draw_circle(Vector2.ZERO, 18.0, Color(Color("f2e6c2"), 0.55))
+		var iw := item_h * item_tex.get_width() / item_tex.get_height()
+		draw_set_transform(Vector2.ZERO, item_tilt, Vector2.ONE)
+		draw_texture_rect(item_tex, Rect2(-iw / 2.0, -item_h / 2.0, iw, item_h), false)
 		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
-		draw_texture_rect(_bubble, bubble_rect, false, Color(1, 1, 1, 0.4))
+		var outline := pts.duplicate()
+		outline.append(pts[0])
+		draw_polyline(outline, Color(Color("a87938"), 0.7), 1.6, true)
+		draw_circle(Vector2(-13, -15), 4.5, Color(Color("f3e0ac"), 0.8))
 
 
 func _ready() -> void:
@@ -185,22 +196,34 @@ func _generate_obstacles() -> void:
 		x += randf_range(OBSTACLE_GAP_MIN, OBSTACLE_GAP_MAX)
 
 
+const BUBBLE_ITEMS := {
+	"coffee": {"tex": "res://assets/items/coffee-can.png", "h": 30.0, "tilt": 0.30},
+	"radio": {"tex": "res://assets/items/radio.png", "h": 28.0, "tilt": -0.12},
+	"umbrella": {"tex": "res://assets/items/umbrella.png", "h": 34.0, "tilt": 0.10},
+}
+
+
 func _generate_pickups() -> void:
-	# 世界观：物品不凭空散落——每圈经过自动售货机时，机器旁浮着一罐咖啡，
-	# 跑过即拾取（不必跳）。点位标定在 lights.json 的 pickup_spots
-	for spot in _baked.get("pickup_spots", [{"x": 1500.0}]):
+	# 世界观：物品各有出处——咖啡只在售货机旁、收音机在车站长椅、
+	# 伞在水洼段栏杆边。点位和物件绑定，标定在 lights.json 的 pickup_spots
+	for spot in _baked.get("pickup_spots", [{"x": 1500.0, "item": "coffee"}]):
 		for i in range(SCENE_LOOPS):
-			# 水平：以售货机为源头随机漂几步，离机器最远约 4 个身位（~200px）
+			# 水平：以来源为锚随机漂几步，最远约 4 个身位（~200px）
 			var cx: float = (spot.x + randf_range(-80.0, 80.0)) * _scene_scale + i * _scene_w
 			# 半空随机高度：低的轻轻一跳、高的要跳到顶（上限留了拾取余量）
 			var cy := ground_y - randf_range(130.0, 205.0)
-			var bubble := CoffeeBubble.new()
+			var item: Dictionary = BUBBLE_ITEMS[spot.get("item", "coffee")]
+			var bubble := ItemBubble.new()
+			bubble.item_tex = load(item.tex)
+			bubble.item_h = item.h
+			bubble.item_tilt = item.tilt
 			bubble.position = Vector2(cx, cy)
 			world.add_child(bubble)
 			pickups.append({
 				"rect": Rect2(cx - 26, cy - 30, 52, 60),
 				"taken": false,
 				"node": bubble,
+				"item": spot.get("item", "coffee"),
 			})
 
 
