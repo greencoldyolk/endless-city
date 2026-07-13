@@ -4,7 +4,7 @@ extends Node2D
 
 const SCREEN_W := 1280.0
 const SCREEN_H := 720.0
-const SURFACE_FRACTION := 0.72   # 碰撞地面线在屏幕高度的位置
+const SURFACE_FRACTION := 0.68   # 碰撞地面线在屏幕高度的位置（调小=往护栏/画面深处挪）
 const SCENE_LOOPS := 3
 const CAMERA_SMOOTHING := 5.0
 

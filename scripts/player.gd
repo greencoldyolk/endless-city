@@ -166,8 +166,11 @@ func step(delta: float, world_width: float, obstacles: Array, pickups: Array) ->
 
 	# --- 障碍与正向物品（心情系统）---
 	var box := Rect2(position.x, position.y, BOX_W, BOX_H)
+	# 撞击判定比身体小一圈：蹭到边角不算撞（温和跑酷，判定宁松勿严）；
+	# 物品拾取仍用全身框，奖励从宽
+	var hit_box := box.grow_individual(-14.0, -10.0, -14.0, -6.0)
 	for obstacle in obstacles:
-		if not obstacle.hit and box.intersects(obstacle.rect):
+		if not obstacle.hit and hit_box.intersects(obstacle.rect):
 			obstacle.hit = true
 			mood = max(0.0, mood - MOOD_HIT_COST)
 			hit_flash = 0.3
