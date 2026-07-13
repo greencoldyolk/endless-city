@@ -5,11 +5,13 @@ extends Node2D
 const SCREEN_W := 1280.0
 const SCREEN_H := 720.0
 const SURFACE_FRACTION := 0.68   # 碰撞地面线在屏幕高度的位置（调小=往护栏/画面深处挪）
-const SCENE_LOOPS := 3
+const SCENE_LOOPS := 6
 const CAMERA_SMOOTHING := 5.0
 
-const OBSTACLE_GAP_MIN := 600
-const OBSTACLE_GAP_MAX := 1350
+# 这个游戏是用来放空的：障碍平均十秒一个，大部分时间只是跑着看城市
+const OBSTACLE_GAP_MIN := 1600
+const OBSTACLE_GAP_MAX := 3400
+const PICKUP_SPAWN_CHANCE := 0.5  # 悬浮物一半概率出现，扑空是常态、遇见是运气
 
 var world: Node2D
 var player: Node2D
@@ -24,6 +26,19 @@ var _mood_fill: ColorRect
 var _baked: Dictionary = {}
 var _scene_scale := 1.0
 var _scene_w := 0.0
+
+
+## 障碍物的贴地软影（一个节点画全部，椭圆软斑和角色接触影同一语言）
+class ObstacleShadows extends Node2D:
+	var spots: Array = []  # Vector2(中心x, 宽度)
+	var ground := 0.0
+
+	func _draw() -> void:
+		for s in spots:
+			draw_set_transform(Vector2(s.x, ground - 3.0), 0.0, Vector2(1.0, 0.3))
+			draw_circle(Vector2.ZERO, s.y * 0.52, Color(0.04, 0.05, 0.09, 0.20))
+			draw_circle(Vector2.ZERO, s.y * 0.36, Color(0.04, 0.05, 0.09, 0.16))
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 
 ## 统一的可收集物语言：所有物件（咖啡/收音机/雨伞）都裹在同一种
@@ -181,19 +196,39 @@ func _make_warm_light(pos: Vector2, energy: float, scale_factor: float) -> Point
 	return light
 
 
+# 三种"荒城旧物"障碍：A字路障（高，要跳）、翘起的检修板（矮，容错）、
+# 泡软的纸箱（中）。高度即难度层次
+const OBSTACLE_TYPES := [
+	{"tex": "res://assets/obstacles/barrier.png", "h": 56.0},
+	{"tex": "res://assets/obstacles/plate.png", "h": 20.0},
+	{"tex": "res://assets/obstacles/box.png", "h": 40.0},
+]
+# 障碍物是阴天里的旧物：压暗压冷才能沉进场景（素材本身偏亮）
+const OBSTACLE_TONE := Color(0.58, 0.59, 0.68)
+
+
 func _generate_obstacles() -> void:
+	var shadows := ObstacleShadows.new()
+	shadows.ground = ground_y
+	world.add_child(shadows)  # 先加，影子垫在障碍物下面
 	var x := 1350.0
 	while x < world_width - 900.0:
-		var w := randf_range(45, 70)
-		var h := randf_range(50, 85)
+		var type: Dictionary = OBSTACLE_TYPES.pick_random()
+		var tex: Texture2D = load(type.tex)
+		var h: float = type.h
+		var w: float = h * tex.get_width() / tex.get_height()
 		var rect := Rect2(x, ground_y - h, w, h)
-		var node := ColorRect.new()
+		var node := Sprite2D.new()
+		node.texture = tex
+		node.centered = false
 		node.position = rect.position
-		node.size = rect.size
-		node.color = Color(0.2, 0.19, 0.17)
+		node.scale = Vector2(w / tex.get_width(), h / tex.get_height())
+		node.modulate = OBSTACLE_TONE
 		world.add_child(node)
+		shadows.spots.append(Vector2(x + w / 2.0, w))
 		obstacles.append({"rect": rect, "hit": false, "node": node})
 		x += randf_range(OBSTACLE_GAP_MIN, OBSTACLE_GAP_MAX)
+	shadows.queue_redraw()
 
 
 const BUBBLE_ITEMS := {
@@ -208,6 +243,8 @@ func _generate_pickups() -> void:
 	# 伞在水洼段栏杆边。点位和物件绑定，标定在 lights.json 的 pickup_spots
 	for spot in _baked.get("pickup_spots", [{"x": 1500.0, "item": "coffee"}]):
 		for i in range(SCENE_LOOPS):
+			if randf() > PICKUP_SPAWN_CHANCE:
+				continue  # 这一圈这个点位空着——不是每次路过都有惊喜
 			# 水平：以来源为锚随机漂几步，最远约 4 个身位（~200px）
 			var cx: float = (spot.x + randf_range(-80.0, 80.0)) * _scene_scale + i * _scene_w
 			# 半空随机高度：低的轻轻一跳、高的要跳到顶（上限留了拾取余量）

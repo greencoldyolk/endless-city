@@ -3,6 +3,23 @@ extends Node2D
 ## 从 pygame 版 player.py 平移，数值对应 720p 逻辑分辨率。
 ## 坐标约定和 pygame 一致：position = 碰撞盒左上角。
 
+
+## 撞到障碍时从身上飘散的一小颗暖泡——"被撞散的温暖"，向后上方飘、渐隐
+class WarmPuff extends Node2D:
+	var _life := 0.7
+
+	func _process(delta: float) -> void:
+		_life -= delta
+		if _life <= 0.0:
+			queue_free()
+			return
+		position += Vector2(-26.0, -52.0) * delta
+		modulate.a = _life / 0.7
+
+	func _draw() -> void:
+		draw_circle(Vector2.ZERO, 9.0, Color(Color("ddb65a"), 0.5))
+		draw_circle(Vector2.ZERO, 5.5, Color(Color("f2e6c2"), 0.7))
+
 # --- 数值表（对应 pygame settings.py 的 720p 刻度）---
 const RUN_SPEED := 250.0
 const ACCEL := 600.0
@@ -234,6 +251,12 @@ func step(delta: float, world_width: float, obstacles: Array, pickups: Array) ->
 			obstacle.hit = true
 			mood = max(0.0, mood - MOOD_HIT_COST)
 			hit_flash = 0.3
+			# 一颗暖泡从身上飘散——被撞掉的那点温暖
+			var puff := WarmPuff.new()
+			puff.position = position + Vector2(BOX_W * 0.5, BOX_H * 0.35)
+			get_parent().add_child(puff)
+			_snd_land.volume_db = linear_to_db(0.12)
+			_snd_land.play()
 			if mood <= 0.0:
 				resting = true
 				_snd_rest.play()
@@ -324,16 +347,20 @@ func _update_sprite() -> void:
 			var t := land_timer / 0.12
 			squash = Vector2(1.0 + 0.10 * t, 1.0 - 0.10 * t)
 	else:
-		_sprite.rotation = RUN_TILT if is_running else 0.0
+		# 撞击反馈：轻微后仰 + 身体压缩，0.3 秒内自然回正（配合失温，不用特效）
+		var hit_k := hit_flash / 0.3
+		_sprite.rotation = (RUN_TILT if is_running else 0.0) - 0.4 * hit_flash
+		if hit_k > 0.0:
+			squash = Vector2(1.0 + 0.07 * hit_k, 1.0 - 0.07 * hit_k)
 	_sprite.scale = Vector2(frame_scale, frame_scale) * squash
 
+	# 温度=心情：失去的不是生命值，是温暖。心情越低整个人越冷越灰，
+	# 撞到东西的瞬间再"冷一口"，0.3 秒内回到当前体温。全程没有红色
+	var warmth: float = mood / MOOD_MAX
+	var body_tone := Color(0.5, 0.51, 0.58).lerp(Color(0.72, 0.73, 0.83), warmth)
 	if hit_flash > 0.0:
-		_sprite.modulate = Color(1.25, 0.85, 0.85)
-	elif resting:
-		_sprite.modulate = Color(0.52, 0.53, 0.58)
-	else:
-		# 阴天暮色的环境调：压暗压冷，暖光源经过时由 PointLight2D 抬回来
-		_sprite.modulate = Color(0.72, 0.73, 0.83)
+		body_tone = body_tone.lerp(Color(0.42, 0.43, 0.5), hit_flash / 0.3 * 0.8)
+	_sprite.modulate = body_tone
 
 	# 下一帧精灵：同位置同变换，透明度=帧进度
 	if next_texture != null:
