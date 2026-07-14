@@ -11,6 +11,7 @@ import http.server
 import socket
 import socketserver
 import ssl
+import subprocess
 from pathlib import Path
 
 PORT = 8060
@@ -48,8 +49,13 @@ if __name__ == "__main__":
     with http.server.ThreadingHTTPServer(("", PORT), Handler) as httpd:
         # Godot 4 网页版要求"安全上下文"（音频 Worklet 等），localhost 天然安全，
         # 但手机走局域网 IP 必须 HTTPS——自签名证书，手机上首次访问需手动信任
+        # 证书由 tools/make_certs.sh 生成（本地 CA 签发；iPhone 装一次 ca.pem
+        # 并开完全信任后不再有任何拦截）。IP 变了重跑 make_certs.sh 即可
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         ctx.load_cert_chain(CERT_DIR / "cert.pem", CERT_DIR / "key.pem")
         httpd.socket = ctx.wrap_socket(httpd.socket, server_side=True)
-        print(f"iPhone 上打开: https://{lan_ip()}:{PORT}")
+        name = subprocess.run(["scutil", "--get", "LocalHostName"],
+                              capture_output=True, text=True).stdout.strip()
+        print(f"iPhone 上打开: https://{name}.local:{PORT}  （推荐，换 IP 不受影响）")
+        print(f"      或 IP 版: https://{lan_ip()}:{PORT}")
         httpd.serve_forever()
