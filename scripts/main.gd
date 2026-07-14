@@ -26,6 +26,14 @@ var _baked: Dictionary = {}
 var _scene_scale := 1.0
 var _scene_w := 0.0
 
+# 两层流云：放大倍率让云朵尺寸和烤死的天错开，相对运动才可读；
+# 双速差制造天空自身的纵深。速度慢（px/s），防晕安全
+const CLOUD_LAYERS := [
+	{"scale": 1.3, "alpha": 0.45, "speed": 24.0},
+	{"scale": 1.8, "alpha": 0.32, "speed": 44.0},
+]
+var _cloud_sprites: Array[Sprite2D] = []
+
 # --- UI（左下心情面板 + 右上电台开关）---
 var _ui_font: FontFile
 var _lbl_mood: Label
@@ -35,6 +43,72 @@ var _lbl_fm: Label
 var _radio_icon: TextureRect
 var _bgm: AudioStreamPlayer
 var _radio_idx := -1  # -1=关，0/1=两个台
+
+# --- 天气 ---
+var _rain: RainLayer
+var _rain_on := true  # 美术基准天气是小雨黄昏，默认开；T 键切换
+var _dim: CanvasModulate
+
+
+## 雨丝层（屏幕空间，挂在相机之外）：小雨基调——细、疏、半透明。
+## 每滴雨带一个随机景深 d：近的长、快、清楚，远的短而淡，一层节点画出纵深；
+## 屏幕上的斜度 = 风 + 相机反向速度，跑起来雨向身后斜，停下来回到风的方向
+class RainLayer extends Node2D:
+	const COUNT := 90           # 小雨密度：疏一点，雨是氛围不是特效
+	const WIND := -55.0         # 雨的横向漂移（px/s，向左，与流云同向）
+	const RAIN_COLOR := Color(0.78, 0.82, 0.92)
+	var ground := 489.0         # 溅落线（屏幕坐标），main 设置
+	var cam_vx := 0.0           # 相机速度，main 每帧写入
+	var strength := 0.0         # 0~1 雨量，开关雨时渐变
+	var _drops: Array = []      # [x, y, 景深d, 落点偏移]
+	var _splashes: Array = []   # [x, y, 年龄]
+
+	func _ready() -> void:
+		for i in range(COUNT):
+			_drops.append(_spawn(true))
+
+	func _spawn(anywhere: bool) -> Array:
+		var d := randf_range(0.35, 1.0)
+		# 落点带景深：远的雨（d 小）落在画面深处的路面上，近的雨落得更低，
+		# 溅落点才不会排成一条直线
+		var land_off := lerpf(-26.0, 18.0, d) + randf_range(-8.0, 8.0)
+		var y := randf_range(-720.0, 489.0) if anywhere else randf_range(-90.0, -10.0)
+		return [randf_range(-60.0, 1520.0), y, d, land_off]
+
+	func _process(delta: float) -> void:
+		var drift := WIND - cam_vx * 0.6
+		for drop in _drops:
+			var d: float = drop[2]
+			drop[0] += drift * d * delta
+			drop[1] += lerpf(380.0, 680.0, d) * delta
+			if drop[1] > ground + drop[3]:
+				# 近处的雨滴落地溅一朵极小的水花（数量封顶；远处的雨直接消失）
+				if d > 0.72 and strength > 0.4 and _splashes.size() < 12:
+					_splashes.append([drop[0], ground + drop[3], 0.0])
+				var n := _spawn(false)
+				for k in range(4):
+					drop[k] = n[k]
+		for s in _splashes:
+			s[2] += delta
+		_splashes = _splashes.filter(func(s): return s[2] < 0.28)
+		queue_redraw()
+
+	func _draw() -> void:
+		if strength <= 0.01:
+			return
+		var drift := WIND - cam_vx * 0.6
+		for drop in _drops:
+			var d: float = drop[2]
+			var vel := Vector2(drift * d, lerpf(380.0, 680.0, d))
+			var head := Vector2(drop[0], drop[1])
+			var tail := head - vel.normalized() * lerpf(7.0, 15.0, d)
+			draw_line(head, tail, Color(RAIN_COLOR, lerpf(0.10, 0.25, d) * strength), 1.0, true)
+		for s in _splashes:
+			var t: float = s[2] / 0.28
+			draw_set_transform(Vector2(s[0], s[1]), 0.0, Vector2(1.0, 0.32))
+			draw_arc(Vector2.ZERO, 2.0 + 9.0 * t, 0.0, TAU, 10,
+				Color(RAIN_COLOR, 0.30 * (1.0 - t) * strength), 1.0, true)
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 
 ## 云朵小图标（心情/天气共用）
@@ -154,22 +228,49 @@ func _ready() -> void:
 					light.get("scale", 2.0)
 				))
 
+	# --- 流云：从母图天空抠出的云带，挂在相机之外独立缓漂。
+	# 母图整体随相机走是"一张画"，天空自己在动才是"一个世界" ---
+	var cloud_tex: Texture2D = load("res://assets/scenes/clouds.png")
+	for layer in CLOUD_LAYERS:
+		var s: float = scene_scale * layer.scale
+		var lw := cloud_tex.get_width() * s
+		for i in range(3):
+			var c := Sprite2D.new()
+			c.texture = cloud_tex
+			c.centered = false
+			c.scale = Vector2(s, s)
+			c.flip_h = i % 2 == 1  # 镜像平铺，接缝天然对齐
+			c.position = Vector2(i * lw, 0)
+			c.modulate = Color(1, 1, 1, layer.alpha)
+			c.set_meta("w", lw)
+			c.set_meta("speed", layer.speed)
+			add_child(c)
+			_cloud_sprites.append(c)
+
 	# 全场景轻微压暗（阴天暮色基调；UI 在独立 CanvasLayer 不受影响）
-	var dim := CanvasModulate.new()
-	dim.color = Color(0.9, 0.9, 0.94)
-	add_child(dim)
+	_dim = CanvasModulate.new()
+	_dim.color = Color(0.9, 0.9, 0.94)
+	add_child(_dim)
+
+	# --- 雨（屏幕空间，挂在相机之外，画在世界和云之上；T 键开关）---
+	_rain = RainLayer.new()
+	_rain.ground = ground_y
+	add_child(_rain)
+	_set_rain(_rain_on, true)
 
 	_generate_obstacles()
 	_generate_pickups()
 
-	# --- 环境声总线：电台开着时整体压低+低通闷化，世界退到音乐后面 ---
-	var bus_idx := AudioServer.bus_count
-	AudioServer.add_bus(bus_idx)
-	AudioServer.set_bus_name(bus_idx, "Ambient")
-	AudioServer.set_bus_send(bus_idx, "Master")
-	var lp := AudioEffectLowPassFilter.new()
-	lp.cutoff_hz = 20000.0
-	AudioServer.add_bus_effect(bus_idx, lp)
+	# --- 环境声总线：电台开着时整体压低+低通闷化，世界退到音乐后面。
+	# 网页端跳过：运行时建总线+挂效果会弄死 Web 音频的整个混音器 ---
+	if not OS.has_feature("web"):
+		var bus_idx := AudioServer.bus_count
+		AudioServer.add_bus(bus_idx)
+		AudioServer.set_bus_name(bus_idx, "Ambient")
+		AudioServer.set_bus_send(bus_idx, "Master")
+		var lp := AudioEffectLowPassFilter.new()
+		lp.cutoff_hz = 20000.0
+		AudioServer.add_bus_effect(bus_idx, lp)
 
 	# --- 玩家 ---
 	player = load("res://scripts/player.gd").new()
@@ -186,7 +287,8 @@ func _ready() -> void:
 	wind.stream = load("res://assets/sounds/wind.mp3")
 	wind.stream.loop = true
 	wind.volume_db = linear_to_db(0.22)
-	wind.bus = "Ambient"
+	if AudioServer.get_bus_index("Ambient") != -1:
+		wind.bus = "Ambient"
 	add_child(wind)
 	wind.play()
 
@@ -261,7 +363,9 @@ func _toggle_radio() -> void:
 		_radio_idx = -1
 
 	var ambient := AudioServer.get_bus_index("Ambient")
-	var lp: AudioEffectLowPassFilter = AudioServer.get_bus_effect(ambient, 0)
+	var lp: AudioEffectLowPassFilter = null
+	if ambient != -1:
+		lp = AudioServer.get_bus_effect(ambient, 0)
 	var tween := create_tween().set_parallel(true)
 
 	if _radio_idx >= 0 and ResourceLoader.exists(STATIONS[_radio_idx].path):
@@ -274,12 +378,13 @@ func _toggle_radio() -> void:
 		_lbl_fm.text = st.fm
 		_radio_icon.modulate = Color(1, 1, 1, 1)
 		# 世界退后：环境声（风/脚步/落地）在 1.2 秒内压低并闷化
-		tween.tween_method(
-			func(v: float): AudioServer.set_bus_volume_db(ambient, v),
-			AudioServer.get_bus_volume_db(ambient), linear_to_db(0.3), 1.2)
-		tween.tween_method(
-			func(v: float): lp.cutoff_hz = v,
-			lp.cutoff_hz, 620.0, 1.2)
+		if lp != null:
+			tween.tween_method(
+				func(v: float): AudioServer.set_bus_volume_db(ambient, v),
+				AudioServer.get_bus_volume_db(ambient), linear_to_db(0.3), 1.2)
+			tween.tween_method(
+				func(v: float): lp.cutoff_hz = v,
+				lp.cutoff_hz, 620.0, 1.2)
 	else:
 		_radio_idx = -1
 		_bgm.stop()
@@ -288,12 +393,28 @@ func _toggle_radio() -> void:
 		_lbl_fm.text = "轻点打开"
 		_radio_icon.modulate = Color(1, 1, 1, 0.45)
 		# 世界回来：环境声恢复原样
-		tween.tween_method(
-			func(v: float): AudioServer.set_bus_volume_db(ambient, v),
-			AudioServer.get_bus_volume_db(ambient), 0.0, 1.2)
-		tween.tween_method(
-			func(v: float): lp.cutoff_hz = v,
-			lp.cutoff_hz, 20000.0, 1.2)
+		if lp != null:
+			tween.tween_method(
+				func(v: float): AudioServer.set_bus_volume_db(ambient, v),
+				AudioServer.get_bus_volume_db(ambient), 0.0, 1.2)
+			tween.tween_method(
+				func(v: float): lp.cutoff_hz = v,
+				lp.cutoff_hz, 20000.0, 1.2)
+
+
+func _set_rain(on: bool, instant := false) -> void:
+	# 雨来/雨停都是渐变的：雨量 2 秒内淡入淡出，环境色同步滑向雨色。
+	# 压暗差刻意很小——雨是天气不是滤镜，画面基调仍由母图负责
+	_rain_on = on
+	var strength_target := 1.0 if on else 0.0
+	var dim_target := Color(0.86, 0.87, 0.93) if on else Color(0.9, 0.9, 0.94)
+	if instant:
+		_rain.strength = strength_target
+		_dim.color = dim_target
+		return
+	var tween := create_tween().set_parallel(true)
+	tween.tween_property(_rain, "strength", strength_target, 2.0)
+	tween.tween_property(_dim, "color", dim_target, 2.0)
 
 
 func _make_panel(pos: Vector2, panel_size: Vector2) -> Panel:
@@ -343,11 +464,10 @@ func _make_warm_light(pos: Vector2, energy: float, scale_factor: float) -> Point
 	return light
 
 
-# 三种"荒城旧物"障碍：A字路障（高，要跳）、翘起的检修板（矮，容错）、
-# 泡软的纸箱（中）。高度即难度层次
+# 两种"荒城旧物"障碍：A字路障（高，要跳）、泡软的纸箱（中）。
+# 检修板已移除：太矮太扁，在湿路面上看不清（素材留在 assets/obstacles/ 备用）
 const OBSTACLE_TYPES := [
 	{"tex": "res://assets/obstacles/barrier.png", "h": 56.0},
-	{"tex": "res://assets/obstacles/plate.png", "h": 20.0},
 	{"tex": "res://assets/obstacles/box.png", "h": 40.0},
 ]
 # 障碍物是阴天里的旧物：压暗压冷才能沉进场景（素材本身偏亮）
@@ -380,7 +500,7 @@ func _generate_obstacles() -> void:
 
 const BUBBLE_ITEMS := {
 	"coffee": {"tex": "res://assets/items/coffee-can.png", "h": 30.0, "tilt": 0.30},
-	"radio": {"tex": "res://assets/items/radio.png", "h": 28.0, "tilt": -0.12},
+	"bell": {"tex": "res://assets/items/bell.png", "h": 36.0, "tilt": 0.22},
 	"umbrella": {"tex": "res://assets/items/umbrella.png", "h": 34.0, "tilt": 0.10},
 }
 
@@ -423,8 +543,19 @@ func _process(delta: float) -> void:
 	var target: float = clamp(
 		player.position.x - SCREEN_W * 0.4, 0.0, world_width - SCREEN_W
 	)
+	var prev_cam := camera_x
 	camera_x += (target - camera_x) * minf(1.0, CAMERA_SMOOTHING * delta)
 	world.position.x = -camera_x
+	# 雨在屏幕空间，需要知道相机速度才能把雨丝"甩"向奔跑的反方向
+	if delta > 0.0:
+		_rain.cam_vx = (camera_x - prev_cam) / delta
+
+	# 流云缓漂（向左，与世界滚动同向，对比度最低的动法）
+	for c in _cloud_sprites:
+		var lw: float = c.get_meta("w")
+		c.position.x -= c.get_meta("speed") * delta
+		if c.position.x <= -lw:
+			c.position.x += lw * 3.0
 
 	# 心情面板：数值藏进"词 + 胶囊"，不给玩家看数字
 	var pct: float = player.mood / player.MOOD_MAX
@@ -443,13 +574,19 @@ func _process(delta: float) -> void:
 
 func _unhandled_input(event: InputEvent) -> void:
 	# 用 _unhandled_input：被 UI（重开按钮）吃掉的点击不会再触发跳跃
-	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_R:
-		get_tree().reload_current_scene()
-		return
-	# 触屏：右半屏点按 = 跳，左半屏按住 = 减速（鼠标模拟同样生效）
+	if event is InputEventKey and event.pressed and not event.echo:
+		if event.keycode == KEY_R:
+			get_tree().reload_current_scene()
+			return
+		if event.keycode == KEY_T:
+			_set_rain(not _rain_on)
+			return
+	# 触屏：右半屏点按 = 跳（按住跳得高），左半屏按住 = 减速（鼠标模拟同样生效）
 	if event is InputEventScreenTouch:
 		var half := get_viewport().get_visible_rect().size.x / 2.0
-		if event.pressed and event.position.x >= half:
-			player.touch_jump_queued = true
-		elif event.position.x < half:
+		if event.position.x >= half:
+			if event.pressed:
+				player.touch_jump_queued = true
+			player.touch_jump_held = event.pressed
+		else:
 			player.touch_slow = event.pressed
