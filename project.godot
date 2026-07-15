@@ -20,8 +20,8 @@ config/features=PackedStringArray("4.7")
 
 [audio]
 
-; 网页端强制 Stream 播放：默认 Sample 模式在 iOS Safari 无声/崩溃/总线效果失效（godot#95991）
 general/default_playback_type.web=0
+
 [display]
 
 window/size/viewport_width=1280

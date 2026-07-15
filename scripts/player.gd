@@ -13,6 +13,10 @@ const JUMP_SPEED := -1080.0
 # 可变跳跃高度：松开跳跃键后上升段的重力倍率。轻点≈半高的小跳，
 # 按住到顶才是满跳（满跳高度不变，够到最高的暖泡）。调大=小跳更矮
 const JUMP_CUT_GRAVITY := 2.0
+# 手感宽容：落地前 0.12s 内按下的跳跃记账、落地瞬间自动起跳（Jump Buffer）；
+# 离开地面 0.1s 内仍可起跳（Coyote Time，现在没有缝隙地形，先为将来铺路）
+const JUMP_BUFFER := 0.12
+const COYOTE_TIME := 0.10
 const BOX_W := 50.0
 const BOX_H := 95.0
 # 单图模式：true = 用简化版单张立绘 + 程序化动画（前倾/俯仰/落地压扁），
@@ -86,6 +90,13 @@ var _snd_umbrella: AudioStreamPlayer
 var _step_duck := 1.0
 var puddle_zones: Array = []  # 单个场景循环内的水坑区间（Vector2(x0,x1)，世界像素）
 var scene_loop_w := 0.0
+# 可站立的单向平台：从上方落下时接住，从下方跳跃穿过。
+# platform_zones 是每循环重复的固定结构（Vector3(x0, x1, top_y)，循环内坐标）；
+# step_boxes 是 main 维护的箱子数组引用（{rect, active}，世界坐标，随环绕搬移）
+var platform_zones: Array = []
+var step_boxes: Array = []
+var _obstacles: Array = []  # step() 里存下的引用，可站立箱子的平台判定用
+var _shadow_surface := 0.0  # 本帧脚下最近的支撑面（画接触影用）
 
 
 func _ready() -> void:
@@ -139,7 +150,7 @@ void fragment() {
 	_snd_land_light = _make_sound("res://assets/sounds/light-land.mp3", 0.35)
 	_snd_pickup = _make_sound("res://assets/sounds/picup-new.mp3", 0.4)
 	_snd_umbrella = _make_sound("res://assets/sounds/umbrella-sound.mp3", 0.5)
-	_snd_rest = _make_sound("res://assets/sounds/rest.wav", 0.45)
+	_snd_rest = _make_sound("res://assets/sounds/sigh.mp3", 0.45)  # 心情到底：一声叹气坐下来
 	# 脚步声两套：日常=普通跑步声，水坑=水花版（音量压低，尖锐感只做点缀）
 	_snd_steps_dry = _make_sound("res://assets/sounds/normal-running.mp3", STEP_DRY_VOL)
 	_snd_steps_dry.stream.loop = true
@@ -198,6 +209,7 @@ func _make_sound(path: String, volume: float) -> AudioStreamPlayer:
 
 ## 每帧由 main 调用。obstacles/pickups 是字典数组（rect/hit/taken），world_width 是世界宽度。
 func step(delta: float, world_width: float, obstacles: Array, pickups: Array) -> void:
+	_obstacles = obstacles
 	# --- 水平：自动奔跑，按住减速；休息时强制停下 ---
 	var slowing := touch_slow \
 		or Input.is_physical_key_pressed(KEY_S) \
@@ -218,32 +230,60 @@ func step(delta: float, world_width: float, obstacles: Array, pickups: Array) ->
 	_jump_key_was_down = jump_key
 	touch_jump_queued = false
 
-	if jump_wanted and on_ground and not resting:
+	_jump_buffer = JUMP_BUFFER if jump_wanted else maxf(0.0, _jump_buffer - delta)
+	_coyote = COYOTE_TIME if on_ground else maxf(0.0, _coyote - delta)
+	if _jump_buffer > 0.0 and _coyote > 0.0 and not resting:
 		vy = JUMP_SPEED
 		on_ground = false
+		_jump_buffer = 0.0
+		_coyote = 0.0
+		# 顶棚上只支持小跳：高处轻手轻脚，满跳也会把头顶出画面。
+		# 箱顶不受限——爬棚顶本来就需要从箱顶满跳
+		_jump_capped = _standing_on_roof()
 
 	# 可变跳跃：上升途中松开跳跃键，重力加倍把这一跳"收短"；
 	# 下落段永远用正常重力，落地手感不变
 	var g := GRAVITY
-	if vy < 0.0 and not (jump_key or touch_jump_held):
+	if vy < 0.0 and (_jump_capped or not (jump_key or touch_jump_held)):
 		g *= JUMP_CUT_GRAVITY
 	vy += g * delta
+	var prev_bottom := position.y + BOX_H
 	position.y += vy * delta
+	var new_bottom := position.y + BOX_H
 
+	# --- 支撑面判定：地面 + 单向平台（车站顶棚/踏脚箱）。
+	# 只在下落时接住"本帧被脚越过的最高面"；上升时全部穿过 ---
 	var was_in_air := not on_ground
-	if position.y + BOX_H >= ground_y:
-		position.y = ground_y - BOX_H
-		var impact := vy
-		vy = 0.0
-		on_ground = true
-		if was_in_air:
-			# 落地音效按下坠速度分两档：小跳（不足满跳 85% 的冲量）用轻版
-			# ——脚尖点地，不是整个人砸下来；响度仍随冲量连续变化
-			var force: float = clamp(impact / absf(JUMP_SPEED), 0.3, 1.0)
-			var snd := _snd_land_light if force < 0.85 else _snd_land
-			snd.volume_db = linear_to_db(0.26 * force)
-			snd.play()
-			land_timer = 0.12
+	var landed := false
+	if vy >= 0.0:
+		var best := 1e9
+		for top in _platform_tops():
+			if prev_bottom <= top + 4.0 and new_bottom >= top:
+				best = minf(best, top)
+		if new_bottom >= ground_y:
+			best = minf(best, ground_y)
+		if best < 1e8:
+			position.y = best - BOX_H
+			var impact := vy
+			vy = 0.0
+			on_ground = true
+			landed = true
+			if was_in_air:
+				# 落地音效按下坠速度分两档：小跳（不足满跳 85% 的冲量）用轻版
+				# ——脚尖点地，不是整个人砸下来；响度仍随冲量连续变化
+				var force: float = clamp(impact / absf(JUMP_SPEED), 0.3, 1.0)
+				var snd := _snd_land_light if force < 0.85 else _snd_land
+				snd.volume_db = linear_to_db(0.26 * force)
+				snd.play()
+				land_timer = 0.12
+	if not landed:
+		on_ground = false  # 站着没接住 = 走出了平台边缘，开始下落（有 Coyote 宽限）
+
+	# 接触影贴在脚下最近的支撑面上（站顶棚时影子在顶棚，不是地面）
+	_shadow_surface = ground_y
+	for top in _platform_tops():
+		if top >= position.y + BOX_H - 2.0:
+			_shadow_surface = minf(_shadow_surface, top)
 
 	if on_ground:
 		anim_time += delta * (vx / RUN_SPEED)
@@ -290,6 +330,11 @@ func step(delta: float, world_width: float, obstacles: Array, pickups: Array) ->
 				resting = true
 				_snd_rest.play()
 	for pickup in pickups:
+		if pickup.get("roof_only", false) and position.y + BOX_H > 290.0:
+			continue  # 顶棚上的物品：人在棚下跳把头探进顶棚不算够到
+		if pickup.has("perch_y") and (not on_ground
+				or absf(position.y + BOX_H - pickup.perch_y) > 4.0):
+			continue  # 箱顶的笔记本：要真的落稳在箱子上，跳过时顺手蹭不算
 		if not pickup.taken and box.intersects(pickup.rect):
 			pickup.taken = true
 			mood = min(MOOD_MAX, mood + MOOD_PICKUP_RESTORE)
@@ -315,6 +360,9 @@ func step(delta: float, world_width: float, obstacles: Array, pickups: Array) ->
 	queue_redraw()
 
 var _jump_key_was_down := false
+var _jump_buffer := 0.0
+var _coyote := 0.0
+var _jump_capped := false  # 本次跳跃是否封顶为小跳（从顶棚起跳时）
 
 
 func _update_sprite() -> void:
@@ -419,6 +467,40 @@ func _update_sprite() -> void:
 		_refl.modulate = Color(0.6, 0.66, 0.8, REFL_ALPHA * cover)
 
 
+## 脚下是否正站在车站顶棚上（每循环重复的平台区，不含箱子）
+func _standing_on_roof() -> bool:
+	if scene_loop_w <= 0.0:
+		return false
+	var cx := fposmod(position.x + BOX_W / 2.0, scene_loop_w)
+	for z in platform_zones:
+		if cx >= z.x and cx <= z.y and absf(position.y + BOX_H - z.z) < 3.0:
+			return true
+	return false
+
+
+## 当前横向位置下所有平台的顶面高度（世界 y）。顶棚每循环重复用循环内
+## 坐标判定；箱子直接用世界坐标（main 在环绕时同步搬移）
+func _platform_tops() -> Array:
+	var tops := []
+	var feet_l := position.x + 10.0
+	var feet_r := position.x + BOX_W - 10.0
+	if scene_loop_w > 0.0:
+		var cx := fposmod(position.x + BOX_W / 2.0, scene_loop_w)
+		for z in platform_zones:
+			if cx >= z.x and cx <= z.y:
+				tops.append(z.z)
+	for b in step_boxes:
+		if b.active and feet_r >= b.rect.position.x \
+				and feet_l <= b.rect.position.x + b.rect.size.x:
+			tops.append(b.rect.position.y)
+	# 可站立的障碍箱：站上去不算撞（顶部宽恕），穿过去照旧扣心情
+	for o in _obstacles:
+		if o.get("standable", false) and feet_r >= o.rect.position.x \
+				and feet_l <= o.rect.position.x + o.rect.size.x:
+			tops.append(o.rect.position.y)
+	return tops
+
+
 ## 脚下在水坑里的程度：0=不在水上，1=完全在水上；边缘 REFL_FEATHER 内线性过渡。
 ## 复用湿脚步声的水坑标定（lights.json 的 puddles），但那边是硬判定、这边要软边缘
 func _puddle_cover() -> float:
@@ -446,12 +528,14 @@ func _draw() -> void:
 	# 接触阴影：软椭圆贴在地面，跳起时变淡变小。
 	# 水坑上把影子让位给倒影——两者叠加会像脚下有两个东西；
 	# 留一成残影当水面的轻微压暗
-	var height_above := ground_y - (position.y + BOX_H)
+	var surf := _shadow_surface if _shadow_surface > 0.0 else ground_y
+	var height_above := surf - (position.y + BOX_H)
 	var closeness: float = max(0.0, 1.0 - height_above / 130.0)
-	var dry := 1.0 - _puddle_cover() * 0.9
+	# 水坑让影效果只在影子真的落在地面上时生效（顶棚/箱子上没有水）
+	var dry := 1.0 - (_puddle_cover() * 0.9 if surf >= ground_y - 1.0 else 0.0)
 	if closeness <= 0.0 or dry <= 0.05:
 		return
 	var w := BOX_W * 1.7 * (0.6 + 0.4 * closeness)
-	var shadow_y := ground_y - position.y
+	var shadow_y := surf - position.y
 	draw_set_transform(Vector2(BOX_W / 2.0, shadow_y), 0.0, Vector2(w / 2.0, w / 14.0))
 	draw_circle(Vector2.ZERO, 1.0, Color(0.04, 0.04, 0.07, 0.31 * closeness * dry))
