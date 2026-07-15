@@ -32,6 +32,10 @@ var ground_y := SCREEN_H * SURFACE_FRACTION
 
 var _scene_w := 0.0
 var _cloud_sprites: Array[Sprite2D] = []
+# 分层视差 demo：远景城市近乎不动（0.08x），这是"城市大到不动"的工程雏形
+var _far_sprites: Array[Sprite2D] = []
+var _far_w := 0.0
+var _far_scroll := 0.0  # 用相机增量累计（环绕跳变不进来），远景永不打嗝
 var _bgm: AudioStreamPlayer
 var _radio_idx := -1    # -1=关，0/1=两个台
 var _zoom := 1.0        # 休息演出：<1 时镜头绕玩家拉远
@@ -48,7 +52,12 @@ func _ready() -> void:
 	add_child(world)
 
 	# --- 场景循环长图 ---
-	var scene_tex: Texture2D = load("res://assets/scenes/loop.png")
+	# 分层模式：存在抠好天的道路层 + 远景层时启用（A1 正式远景到货后同路径替换）
+	var layered := ResourceLoader.exists("res://assets/scenes/loop-road-demo.png") \
+		and ResourceLoader.exists("res://assets/scenes/far-city-demo.png")
+	var scene_tex: Texture2D = load(
+		"res://assets/scenes/loop-road-demo.png" if layered
+		else "res://assets/scenes/loop.png")
 	var scene_scale := SCREEN_H / scene_tex.get_height()
 	_scene_w = scene_tex.get_width() * scene_scale
 	for i in range(SCENE_LOOPS):
@@ -73,6 +82,21 @@ func _ready() -> void:
 					light.get("scale", 2.0)
 				))
 
+	# --- 远景城市层（分层模式）：0.08x 视差，近乎不动 = 大到不动 ---
+	if layered:
+		var far_tex: Texture2D = load("res://assets/scenes/far-city-demo.png")
+		_far_w = far_tex.get_width() * scene_scale
+		for i in range(3):
+			var f := Sprite2D.new()
+			f.texture = far_tex
+			f.centered = false
+			f.scale = Vector2(scene_scale, scene_scale)
+			f.flip_h = i % 2 == 1  # 镜像平铺，天际线接缝天然对齐
+			f.position = Vector2(i * _far_w, 0)
+			f.z_index = -10  # 最底层：远景之上是云，云之上才是道路世界
+			add_child(f)
+			_far_sprites.append(f)
+
 	# --- 流云：从母图天空抠出的云带，挂在相机之外独立缓漂。
 	# 母图整体随相机走是"一张画"，天空自己在动才是"一个世界" ---
 	var cloud_tex: Texture2D = load("res://assets/scenes/clouds.png")
@@ -87,6 +111,8 @@ func _ready() -> void:
 			c.flip_h = i % 2 == 1  # 镜像平铺，接缝天然对齐
 			c.position = Vector2(i * lw, 0)
 			c.modulate = Color(1, 1, 1, layer.alpha)
+			if layered:
+				c.z_index = -5  # 分层时：远景之上、道路世界之下；整图时按节点序画在最上
 			c.set_meta("w", lw)
 			c.set_meta("speed", layer.speed)
 			add_child(c)
@@ -268,6 +294,13 @@ func _process(delta: float) -> void:
 	# 雨在屏幕空间，需要知道相机速度才能把雨丝"甩"向奔跑的反方向
 	if delta > 0.0:
 		_rain.cam_vx = (camera_x - prev_cam) / delta
+
+	# 远景 0.08x 视差：用相机增量累计（无限环绕的坐标跳变不会传进来）
+	if not _far_sprites.is_empty():
+		_far_scroll += (camera_x - prev_cam) * 0.08
+		var far_off := fposmod(_far_scroll, _far_w)
+		for i in _far_sprites.size():
+			_far_sprites[i].position.x = i * _far_w - far_off
 
 	# 休息演出：进入休息镜头绕玩家缓缓拉远，音乐退到风雨声后面；起身复原
 	if player.resting != _was_resting:
