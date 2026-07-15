@@ -96,6 +96,7 @@ var scene_loop_w := 0.0
 var platform_zones: Array = []
 var step_boxes: Array = []
 var _obstacles: Array = []  # step() 里存下的引用，可站立箱子的平台判定用
+var light_xs: Array = []    # 暖光源世界 x（main 注入），接触影朝光的反方向偏
 var _shadow_surface := 0.0  # 本帧脚下最近的支撑面（画接触影用）
 
 
@@ -524,8 +525,24 @@ func _bob() -> float:
 	return RUN_BOB * (0.5 - 0.5 * cos(2.0 * TAU * cycle))
 
 
+## 接触影的光向偏移：靠近暖光源时影子往光的反方向偏，离光越近偏越多
+func _shadow_dx() -> float:
+	var cx := position.x + BOX_W / 2.0
+	var best := 0.0
+	var best_w := 0.0
+	for lx in light_xs:
+		var d: float = cx - lx
+		var ad := absf(d)
+		if ad < 420.0 and ad > 1.0:
+			var lw := 1.0 - ad / 420.0
+			if lw > best_w:
+				best_w = lw
+				best = signf(d) * 14.0 * lw
+	return best
+
+
 func _draw() -> void:
-	# 接触阴影：软椭圆贴在地面，跳起时变淡变小。
+	# 接触影：径向渐变软斑（中心深→边缘归零），跳起时变淡变小。
 	# 水坑上把影子让位给倒影——两者叠加会像脚下有两个东西；
 	# 留一成残影当水面的轻微压暗
 	var surf := _shadow_surface if _shadow_surface > 0.0 else ground_y
@@ -535,7 +552,9 @@ func _draw() -> void:
 	var dry := 1.0 - (_puddle_cover() * 0.9 if surf >= ground_y - 1.0 else 0.0)
 	if closeness <= 0.0 or dry <= 0.05:
 		return
-	var w := BOX_W * 1.7 * (0.6 + 0.4 * closeness)
+	var w := BOX_W * 2.1 * (0.6 + 0.4 * closeness)
+	var h := w * 0.17
 	var shadow_y := surf - position.y
-	draw_set_transform(Vector2(BOX_W / 2.0, shadow_y), 0.0, Vector2(w / 2.0, w / 14.0))
-	draw_circle(Vector2.ZERO, 1.0, Color(0.04, 0.04, 0.07, 0.31 * closeness * dry))
+	draw_texture_rect(Fx.shadow_texture(),
+		Rect2(BOX_W / 2.0 + _shadow_dx() - w / 2.0, shadow_y - 1.0 - h / 2.0, w, h),
+		false, Color(0.04, 0.05, 0.09, 0.58 * closeness * dry))

@@ -1,7 +1,28 @@
 class_name Fx
 extends Object
-## 视觉特效类集合：雨、心情光条、障碍软影、暖泡。
-## 都是自绘/自更新的独立节点，从 main.gd 拆出（纯搬运，行为不变）。
+## 视觉特效类集合：雨、心情光条、接触影、暖泡。
+## 都是自绘/自更新的独立节点。
+
+# 共享的接触影纹理：径向渐变软斑（中心深→边缘归零）。
+# 影子是"光的缺席"，要柔和衰减——实心椭圆会读成贴在地上的灰贴纸
+static var _shadow_tex: GradientTexture2D
+
+
+static func shadow_texture() -> GradientTexture2D:
+	if _shadow_tex == null:
+		# 中段密度要够：湿路面本身很暗，摊得太薄影子会融进路里看不见
+		var g := Gradient.new()
+		g.offsets = PackedFloat32Array([0.0, 0.55, 1.0])
+		g.colors = PackedColorArray([
+			Color(1, 1, 1, 1.0), Color(1, 1, 1, 0.55), Color(1, 1, 1, 0.0)])
+		_shadow_tex = GradientTexture2D.new()
+		_shadow_tex.gradient = g
+		_shadow_tex.fill = GradientTexture2D.FILL_RADIAL
+		_shadow_tex.fill_from = Vector2(0.5, 0.5)
+		_shadow_tex.fill_to = Vector2(0.5, 0.0)
+		_shadow_tex.width = 128
+		_shadow_tex.height = 128
+	return _shadow_tex
 
 
 ## 雨丝层（屏幕空间，挂在相机之外）：小雨基调——细、疏、半透明。
@@ -121,17 +142,22 @@ void fragment() {
 		mat.set_shader_parameter("pad", PAD)
 
 
-## 障碍物的贴地软影（一个节点画全部，椭圆软斑和角色接触影同一语言）
+## 物件的贴地接触影（一个节点画全部）：径向渐变软斑，
+## 并按最近暖光源的方向做轻微偏移——光在左，影偏右
 class ObstacleShadows extends Node2D:
-	var spots: Array = []  # Vector2(中心x, 宽度)
+	var spots: Array = []  # Vector3(中心x, 宽度, 光向偏移dx)；宽度<=0 表示本条隐藏
 	var ground := 0.0
 
 	func _draw() -> void:
+		var tex := Fx.shadow_texture()
 		for s in spots:
-			draw_set_transform(Vector2(s.x, ground - 3.0), 0.0, Vector2(1.0, 0.3))
-			draw_circle(Vector2.ZERO, s.y * 0.52, Color(0.04, 0.05, 0.09, 0.20))
-			draw_circle(Vector2.ZERO, s.y * 0.36, Color(0.04, 0.05, 0.09, 0.16))
-		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+			if s.y <= 0.0:
+				continue
+			var w: float = s.y * 1.5
+			var h: float = s.y * 0.34
+			draw_texture_rect(tex,
+				Rect2(s.x + s.z - w / 2.0, ground - 2.0 - h / 2.0, w, h),
+				false, Color(0.04, 0.05, 0.09, 0.52))
 
 
 ## 统一的可收集物语言：所有物件（咖啡/风铃/雨伞/羽毛/笔记本）都裹在

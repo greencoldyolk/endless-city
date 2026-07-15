@@ -112,6 +112,12 @@ func _ready() -> void:
 	gen.loops = SCENE_LOOPS
 	gen.world_width = _scene_w * SCENE_LOOPS
 	gen.baked = baked
+	# 暖光源世界 x 列表：接触影（角色/障碍/箱子）的方向偏移用
+	var light_xs: Array = []
+	for light in baked.get("lights", []):
+		for i in range(SCENE_LOOPS):
+			light_xs.append(light.x * scene_scale + i * _scene_w)
+	gen.light_xs = light_xs
 	gen.generate_all()
 
 	# --- 环境声总线：电台开着时整体压低+低通闷化，世界退到音乐后面。
@@ -138,6 +144,7 @@ func _ready() -> void:
 		player.platform_zones.append(Vector3(
 			pl[0] * scene_scale, pl[1] * scene_scale, pl[2] * scene_scale))
 	player.step_boxes = gen.step_boxes
+	player.light_xs = light_xs
 	world.add_child(player)
 	gen.player = player
 

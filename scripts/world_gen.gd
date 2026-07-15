@@ -37,13 +37,31 @@ var scene_w := 0.0
 var loops := 6
 var world_width := 0.0
 var baked: Dictionary = {}
+var light_xs: Array = []  # 暖光源世界 x（main 注入），接触影的方向偏移用
 
 # --- 生成产物（player/main 直接引用这些数组）---
 var obstacles: Array = []   # {rect, hit, node, standable[, note]}
 var pickups: Array = []     # {rect, taken, node, item[, roof_only, perch_y]}
 var step_boxes: Array = []  # {rect, dx, node, active, chance}
 var roof_top := 280.0       # 车站顶棚可行走线（世界 y），从 lights.json 平台标定读取
-var _shadows: Fx.ObstacleShadows  # spots[i] 与 obstacles[i] 一一对应
+var _shadows: Fx.ObstacleShadows      # spots[i] 与 obstacles[i] 一一对应
+var _box_shadows: Fx.ObstacleShadows  # spots[i] 与 step_boxes[i] 一一对应
+
+
+## 接触影的光向偏移：靠近暖光源时影子往光的反方向偏（光在左，影偏右）。
+## 远离一切光源时归零——阴天环境光下的影子就该端正地躺在正下方
+func _light_dx(cx: float) -> float:
+	var best := 0.0
+	var best_w := 0.0
+	for lx in light_xs:
+		var d: float = cx - lx
+		var ad := absf(d)
+		if ad < 420.0 and ad > 1.0:
+			var w := 1.0 - ad / 420.0
+			if w > best_w:
+				best_w = w
+				best = signf(d) * 14.0 * w
+	return best
 
 
 func generate_all() -> void:
@@ -109,7 +127,7 @@ func _generate_obstacles() -> void:
 		node.scale = Vector2(w / tex.get_width(), h / tex.get_height())
 		node.modulate = OBSTACLE_TONE
 		world.add_child(node)
-		shadows.spots.append(Vector2(x + w / 2.0, w))
+		shadows.spots.append(Vector3(x + w / 2.0, w, _light_dx(x + w / 2.0)))
 		var o := {"rect": rect, "hit": false, "node": node,
 			"standable": type.get("standable", false)}
 		# 可站立的箱子顶上偶尔有笔记本：贴着箱顶，只有跳上去落稳才能拿
@@ -185,6 +203,9 @@ func _generate_step_boxes() -> void:
 	# 站在下层箱翻盖的空气上会出戏
 	var inset := w * 0.22
 	var top_w := w * 0.50
+	_box_shadows = Fx.ObstacleShadows.new()
+	_box_shadows.ground = ground_y
+	world.add_child(_box_shadows)
 	for spot in baked.get("step_boxes", []):
 		for i in range(loops):
 			var x: float = spot.x * scene_scale + i * scene_w
@@ -198,13 +219,18 @@ func _generate_step_boxes() -> void:
 			var active: bool = randf() < spot.get("chance", 0.5)
 			node.visible = active
 			world.add_child(node)
+			var bcx := x + w / 2.0
+			_box_shadows.spots.append(
+				Vector3(bcx, w * 0.9 if active else 0.0, _light_dx(bcx)))
 			step_boxes.append({
 				"rect": Rect2(x + inset, ground_y - STEP_BOX_H, top_w, STEP_BOX_H),
 				"dx": inset,  # rect 相对贴图左缘的偏移（环绕搬移时同步）
+				"w": w,       # 贴图宽（影子宽度用）
 				"node": node,
 				"active": active,
 				"chance": spot.get("chance", 0.5),  # 复活时沿用同一概率
 			})
+	_box_shadows.queue_redraw()
 
 
 ## 无限世界：场景每循环一模一样，玩家跑进第 5 个循环时把玩家/物件整体
@@ -245,9 +271,9 @@ func wrap() -> float:
 	for i in obstacles.size():
 		var o: Dictionary = obstacles[i]
 		o.node.position.x = o.rect.position.x
-		var spot: Vector2 = _shadows.spots[i]
-		_shadows.spots[i] = Vector2(
-			o.rect.position.x + o.rect.size.x / 2.0, spot.y)
+		var spot: Vector3 = _shadows.spots[i]
+		var scx: float = o.rect.position.x + o.rect.size.x / 2.0
+		_shadows.spots[i] = Vector3(scx, spot.y, _light_dx(scx))
 		# 箱顶笔记本跟随箱子；箱子复活时笔记本一起回来
 		if o.has("note"):
 			var n: Dictionary = o.note
@@ -307,4 +333,11 @@ func wrap() -> float:
 				break
 		b.active = not crowded and randf() < b.chance
 		b.node.visible = b.active
+	# 箱影跟随箱子（active=false 时宽度置 0 隐藏）
+	for i in step_boxes.size():
+		var b: Dictionary = step_boxes[i]
+		var bcx: float = b.node.position.x + b.w / 2.0
+		_box_shadows.spots[i] = Vector3(
+			bcx, b.w * 0.9 if b.active else 0.0, _light_dx(bcx))
+	_box_shadows.queue_redraw()
 	return s
