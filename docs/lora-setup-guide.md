@@ -44,6 +44,9 @@
 > - Manager:顶部菜单 → Manage Extensions;没有就在
 >   `ComfyUI\custom_nodes\` 下 clone ComfyUI-Manager 后重启
 > - kohya 训练配置里的模型路径也指向上面的 models 目录,不重复下载
+> - Q 盘顶层目录规划(平级,不嵌套):`Q:\portablecomfy\`(出图)、
+>   `Q:\kohya_ss\`(训练器)、`Q:\lora\emptycity-v1\`(数据集+产出,
+>   即 Step 3 的骨架,盘符从 D: 改为 Q:)
 
 ## Step 2 · kohya_ss(训练端,约 20 分钟)
 
