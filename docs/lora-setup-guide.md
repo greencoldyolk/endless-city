@@ -14,8 +14,16 @@
 
 ## Step 1 · ComfyUI(出图端,约 20 分钟 + 下载时间)
 
+> 选定版本:**v0.28.0**(2026-07-15 发布的最新稳定版,Flux 支持完善)。
+> 一键安装:PowerShell 里跑仓库根目录的 `setup-comfyui.ps1`(自动下载、
+> 解压、检查磁盘空间),或按下面手动来。
+
 1. 最省事:下载 **ComfyUI Portable**(官方 GitHub Releases 的
-   `ComfyUI_windows_portable_nvidia.7z`),解压即用,自带独立 Python
+   `ComfyUI_windows_portable_nvidia.7z`,v0.28.0 约 1.95 GB),解压即用,
+   自带独立 Python(与系统 Python 3.11 互不影响)。
+   直链:https://github.com/comfyanonymous/ComfyUI/releases/download/v0.28.0/ComfyUI_windows_portable_nvidia.7z
+   - 启动如报 CUDA/驱动错误:优先升级 NVIDIA 驱动;升不了就换同页的
+     `ComfyUI_windows_portable_nvidia_cu126.7z`(旧驱动兼容版)
 2. 启动:双击 `run_nvidia_gpu.bat`,浏览器开 `http://127.0.0.1:8188`
 3. 模型下载(Flux.1-dev 在 HuggingFace 上是 gated,先注册账号点同意):
    | 文件 | 放到 | 说明 |
