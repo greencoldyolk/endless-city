@@ -16,7 +16,8 @@ Q:\lora\emptycity-v1\
 
 - 从 clone 的 repo 里拷 `assets/concepts/style-corpus/*.png` 和 `*.txt`,
   **不要拷 rejected/ 子目录和任何 .md**
-- `12_` = repeats;36 张 × 12 × 10 epochs ÷ batch 4 = **1080 步**,风格 LoRA 甜区内
+- `12_` = repeats;36 张 × 12 × 10 epochs ÷ batch 2 = **2160 步**,风格 LoRA 甜区内
+  (**Max train steps 设 0**,不然默认 1600 会把第 8 个 epoch 起全部掐掉)
 
 ## 2 · kohya GUI 关键字段(LoRA 页签,Flux.1 模式)
 
@@ -24,16 +25,21 @@ Q:\lora\emptycity-v1\
 |---|---|---|
 | Pretrained model | ComfyUI 的 `flux1-dev.safetensors` 路径 | 共用,不重复下载 |
 | VAE / AE | `ae.safetensors` | 同上 |
-| CLIP-L / T5XXL | `clip_l.safetensors` / `t5xxl_fp16.safetensors` | 64G 用 fp16 版 |
+| CLIP-L / T5XXL | `clip_l.safetensors` / `t5xxl_fp16.safetensors` | T5 只在缓存时跑一遍,fp16 版占的是 64G 内存,不占显存 |
 | LoRA type | Flux1 | |
+| **fp8 base** | **勾上** | 4090 显存 24G,基座压 fp8 才装得下 Flux |
 | Network Dim / Alpha | **32 / 16** | 风格容量足够,再大易过拟合 |
-| Train batch size | **4** | 64G 特权,梯度更稳 |
+| Train batch size | **2** + Gradient accumulate steps **2** | 24G 显存现实;等效 batch 4,梯度质量不变。OOM 就 1+4 |
 | Epoch | **10**,每 epoch 存档 | 全存,最后对比挑 |
+| Max train steps | **0**(不设上限) | 以 epoch 为准,防默认 1600 截断 |
 | Learning rate | **1e-4**,调度 cosine | Flux LoRA 社区标准起点 |
+| Guidance scale(Flux.1 区) | **1.0** | 3.5 是出图用的;dev 训练标准是 1.0 |
 | Optimizer | AdamW8bit | 稳、省 |
-| Max resolution | **1024,1024** + Enable buckets | 桶上限 1536,下限 512 |
-| Mixed precision | **bf16** | 64G 不用省 |
-| Gradient checkpointing | 关 | 显存管够,换训练速度 |
+| CrossAttention | sdpa | kohya Flux 文档推荐,xformers 易出兼容问题 |
+| Max resolution | **1024,1024** + Enable buckets | 桶上限 1536,下限 512;OOM 第二招:上限降 1024 |
+| Mixed precision / Save precision | **bf16 / bf16** | |
+| Gradient checkpointing | **开** | 24G 必开,计算换显存 |
+| Train U-Net only | **勾上**(或 TE lr 设 0) | 风格 LoRA 不练 text encoder,且与 TE 缓存冲突 |
 | Cache latents / text encoder outputs | 都开 | 36 张,缓存后飞快 |
 | Sample every n epochs | 1,写入下面 4 条测试 prompt | 训练中肉眼监工 |
 
