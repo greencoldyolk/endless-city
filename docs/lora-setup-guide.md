@@ -65,6 +65,23 @@ D:\lora\emptycity-v1\
    每 epoch 存档 + 4 张固定样张)
 4. 训练中怎么看曲线、怎么从 10 个 epoch 存档里挑最佳的验收清单
 
+## Step 5 · 角色管线接线(可提前装;工作流和定妆照后续由 Claude 供给)
+
+1. **ComfyUI-Manager**:`ComfyUI/custom_nodes/` 下
+   `git clone https://github.com/ltdrdata/ComfyUI-Manager`,重启 ComfyUI,
+   界面多出 Manager 按钮——之后的节点都用它一键装
+2. **Flux Redux**(官方图像参考适配器,立绘/风格一致性主力):
+   下载 `flux1-redux-dev.safetensors` → `models/style_models/`;
+   `sigclip_vision_patch14_384.safetensors` → `models/clip_vision/`
+   (均在 BFL / Comfy-Org 的 HuggingFace 仓库)
+3. **PuLID-Flux**(脸部 ID 锁定,配"脸部特写参考"用):Manager 里搜
+   `PuLID Flux` 装节点;权重 `pulid_flux_v0.9.x.safetensors` →
+   `models/pulid/`;首次运行会自动拉 insightface/EVA-CLIP 依赖
+4. **ControlNet Flux Union**(锁构图/踩踏线,A2 道路段要用):
+   InstantX 的 `FLUX.1-dev-Controlnet-Union` → `models/controlnet/`
+
+装好即可,不用会用——工作流 json 到投产时一并交付。
+
 ## 训练时的三个仪表(先记住,开炉时用)
 
 - **Loss 曲线**:前期快速下降后进入缓坡属正常;完全不降=学不动(lr 太小或
