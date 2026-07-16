@@ -7,7 +7,7 @@
 ## 1 · 数据集摆放(PC 上,2 分钟)
 
 ```
-D:\ai\lora\emptycity-v1\
+Q:\lora\emptycity-v1\
 ├── img\
 │   └── 12_emptycity style\    ← 36 张 png + 36 个 .txt 全部拷进来
 ├── model\
