@@ -35,13 +35,15 @@
 4. 验证:官方 Flux 示例工作流(ComfyUI examples 页面有 flux-dev 的 json,
    拖进浏览器窗口即加载),跑一张 1024×1024,一两分钟内出图即通
 
-> **本机实际安装记录(2026-07)**:装的是 **ComfyUI Desktop**(安装版,
-> 非便携版),没有 `run_nvidia_gpu.bat`,从开始菜单/桌面图标启动;
-> Manager 已内置,无需手动 clone。模型统一放共享数据目录:
-> `Q:\Comfy-Desktop\ComfyUI-Shared\models\`(其下 `diffusion_models`、
-> `vae`、`text_encoders`、`style_models`、`clip_vision`、`pulid`、
-> `controlnet`,缺哪个子目录就新建)。kohya 训练配置里的模型路径
-> 也指向这里,不重复下载。
+> **本机实际安装记录(2026-07)**:最初装了 ComfyUI Desktop,已卸载
+> 重装为**便携版 v0.28.0**,根目录 `Q:\portablecomfy\ComfyUI_windows_portable\`。
+> - 启动:双击根目录下的 `run_nvidia_gpu.bat`
+> - 模型:`Q:\portablecomfy\ComfyUI_windows_portable\ComfyUI\models\`
+>   (其下 `diffusion_models`、`vae`、`text_encoders`、`style_models`、
+>   `clip_vision`、`pulid`、`controlnet`,缺哪个子目录就新建)
+> - Manager:顶部菜单 → Manage Extensions;没有就在
+>   `ComfyUI\custom_nodes\` 下 clone ComfyUI-Manager 后重启
+> - kohya 训练配置里的模型路径也指向上面的 models 目录,不重复下载
 
 ## Step 2 · kohya_ss(训练端,约 20 分钟)
 
