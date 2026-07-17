@@ -1,1 +1,1 @@
-pworldbg, city_interior, night, behind a giant billboard, dark steel framework and maintenance catwalks, faint warm artwork glow bleeding through the translucent screen, lanterns and vines, city lights far below
+pworldbg, city_interior, cold blue night, rear side of a giant translucent billboard, steel framework, stacked maintenance catwalks, faint closed-eyed woman silhouette, carousel-horse glow, warm lanterns, vines, rainy city lights far below
