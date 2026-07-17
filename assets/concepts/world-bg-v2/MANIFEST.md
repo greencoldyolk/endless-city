@@ -23,7 +23,15 @@
 | C04__gate-frontal__r1 | 游乐园大门（图案化无字） | DL 01:03 | | 灯饰拱星月木马 + 车票灯箱定稿 |
 | C08__monorail-station-side__r1 | 单轨小火车+站亭（侧视） | DL 03:02 | | §25.9 单轨观景环线概念；超宽 |
 
-> 全部 13 张已配 caption .txt（触发词 pworldbg + 组 + 色调），训练时直接拷。
+| A01__station-shelter-clean__r2 | 候车亭正典无人版（藤蔓失序+长椅+雾中巨城） | DL 03:51 | | 分镜1收工；右柱小牌字痕→inpaint |
+| A02__vending-platform__r1 | 售货机小平台（星茉莉+绣球定稿） | DL 03:30 | | 分镜2收工；售货机定妆照 |
+| A03__platform-citywall__r1 | 站台+城墙背景 | DL 03:36 | | 密度偏城市内部，组签=A/B过渡 |
+| A05__bench-vista__r1 | 孤椅小景（有花版） | DL 03:57 | | 中断仪式氛围定妆照；无花版在 rejected（亮城违距离律，暗城重出后可当常规版） |
+| A06__waterfront-platform__r1 | 临水站台（饮料回架定稿） | DL 03:21 | | 分镜6收工 |
+
+> caption 由 Codex 统一重写（规则见 corpus-candidates/CAPTIONING-README.md），
+> 现有 .txt 为占位符。售货机配额已满（A01/A02/A06 三张），后续车站图
+> prompt 必带 no vending machine。
 > 吊舱玻璃碎/完好等场景事实不一致**不影响入炉**——风格 LoRA 学渲染语言
 > 不学场景事实；一致性只约束正典资产。
 
