@@ -1,5 +1,7 @@
-# pworldbg-v0 风格 LoRA · 配方档案
+# pworldbg-v0 风格 LoRA · 配方档案（已退役，由 pworldbg-v1 接替）
 
+> ⚠️ 2026-07-18 步数勘误：本炉数据集目录实为 `16_pworldbg`（repeats 16，
+> 非文中的 8），全程 1440 步跑满；**e6 = 864 步**。选档结论不变。
 > 定档：2026-07-17，用户裁决 epoch 6。
 > 模型本体不进 git（153MB 超 GitHub 上限），两台机器各存一份：
 > - PC：`Q:\lora\pworldbg-v0\model\pworldbg-v0-000006.safetensors`
