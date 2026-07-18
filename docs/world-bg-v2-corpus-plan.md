@@ -22,8 +22,9 @@
 - **配比：城市 45% / 游乐园 45% / 过渡与母版 10%**。
   防两个失败模式：游乐园过多 → 风格被误解成紫粉童话；
   城市过多 → 退回冷蓝写实。
-- caption 强制写清地图组与色调：`city_edge` / `amusement_park`、
-  `cool rainy blue hour` / `romantic purple twilight`。
+- caption 强制写清地图组与色调：`city_edge` / `city_interior` /
+  `amusement_park` / **`airport`（2026-07-17 起正式建组，D 组 6 张）**、
+  `cool rainy blue hour` / `romantic purple twilight` / `cold blue night`。
 - 子 LoRA（`world_bg_city_edge` / `world_bg_amusement_park`）等两组都
   稳定后再分，现在数据太薄，分太早。
 
