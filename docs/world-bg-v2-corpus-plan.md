@@ -129,6 +129,14 @@
   暖灯透花串=浪漫，暗处成簇下垂剪影=恐怖片语法，判据用"便利店还是
   案发现场"；暗处只用贴面绿藤与小白花（白花自带微光感）。
   紫藤限定有灯串的游乐园/庭院段，车站默认绿藤+星茉莉。
+- **开门律（2026-07-17，用户裁决）**：商铺/摊亭/柜台的默认状态=
+  **开着门、亮着灯、货品齐全、只是没人**——"地方开着没人"才是
+  "世界在等你"（game-design §5.4 杠杆一的落地）。卷帘门拉下是例外
+  （重废墟段或节奏点缀），不是常态。
+  prompt/caption 词汇修订：弃用 closed kiosk / closed storefronts，
+  改用 open warmly lit kiosk, fully stocked, unattended / shutters up,
+  goods on display, no one behind the counter。既有语料的"落闸"
+  由 v2 新图稀释；此条列入 Codex caption 研究题（closed 绑定案例）
 - **道具稀少律**：售货机等暖光地标在语料中限 2–3 张（分镜2=定妆照），
   其余镜头 prompt 明写 no vending machine——防 LoRA 把圣物学成默认家具
   （"记道具"与"记构图"同理）；游戏侧本就是"最小间隔+保底"摆放。
@@ -170,6 +178,43 @@
   否则病随代际复利；② v2 语料保持混血——GPT 原创、自举精选、
   母图切块三源配比，不许全吃自产（防近亲繁殖式风格塌缩）；
   ③ 每轮自举仍一轮一旋钮，先补最缺的组（机场、车站分镜 3/4/5/7）
+
+## 7.8 v2 语料与 caption 架构（2026-07-17，Codex 复盘定稿）
+
+来源：Codex 对照 25 条 caption 与 19 张考卷的因果复盘（全文见会话记录，
+方法论限定：单 seed 卷不下确定因果）。
+
+**她的架构：专属词＋载体/内容正交**
+- 第二触发词 **`pworldwoman`**（保留 closed-eyed woman 自然语言召唤）
+- 载体（巨屏/灯箱/墙画/billboard）× 内容（人物/纯图案）**正交配对**，
+  每种载体两版都要有；巨屏中非人物:人物 ≥ **2:1**
+- 她需要**小/中/巨三种尺度**的真实样本——当前"她是谁"可控、
+  "她有多大"不可控（C 卷要 small lightbox 出了巨幅）
+- 词汇拆分：她=`pworldwoman portrait display`；
+  其他=`pattern display` / `geometric screen` / `symbol-only panel`；
+  泛词 artwork screen 退役；B05 的 faint distant artwork tower 改明确
+
+**解除纠缠**
+- **摩天轮**：C 组 6/6 caption 有它→已与组标签+紫暮纠缠。v2 游乐园
+  新图部分不带轮、远景只用 `distant ferris wheel silhouette` 专词
+- **设施轴**：茶杯/碰碰车/单轨/木马各自独立点名配样本
+  （B 卷证明新设施会被吸回已有载具）
+- **airport**：D 组 6/7 有飞机、5/7 有塔——补无飞机的机场空间
+  （值机岛特写、步道、行李厅）稀释
+- **A 组水词**：只在画面真有水时写 water（A01 案例：caption 带
+  waterfront 而图无水，v1 已带错训练一轮，本轮修正落盘）
+
+**细粒度控制词（欠点名概念补课）**
+- 占用状态分层：`unoccupied ride vehicles` / `vacant shop interiors` /
+  `empty seating rows`（D 卷证明"街道无人"管不到"店内无人"）
+- 植物失序进 caption：`lush overgrown vines spilling over`（现只写
+  vines，输出偏园艺）
+- **可玩路线统一词**：`clear empty walking route` 升级为全语料标配
+  （游戏背景的核心轴，目前仅 B01 有）
+- 正典地标组合样本：最高塔+斜拉桥+临水至少 2–3 张同框（F 卷
+  回落曼哈顿，组合从未被教过）
+- 雨绑定待测：先跑晴天考题（见 eval-method），确认 pworldbg 是否
+  强制下雨后再决定要不要非雨样本
 
 ## 8. 开炉门槛
 

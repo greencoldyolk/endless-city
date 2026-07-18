@@ -62,6 +62,19 @@
 4. 机场组 D06/D07 用了 romantic purple twilight——从 E 卷输出看，
    色调标签跨组混用的利弊？
 
+## 5.5 考纲升级（2026-07-17，采纳 Codex 复盘）
+
+- **素模基线列**：每卷加一张无 LoRA 的 Flux 基线渲染，
+  区分"LoRA 学的"与"底模先验"（F 卷曼哈顿问题的归因前提）
+- **晴天考题 H**：`pworldbg, city_edge, clear dry late afternoon, ...`
+  ——测 pworldbg 是否已把"下雨"焊死
+- **E 卷改用 `airport` 标签**（现行考卷用的是 city_interior，
+  从未真正测过机场标签）
+- **2×2 交叉考**：airport/amusement_park × cool blue hour/purple
+  twilight 四题同骨架同 seed——验证色调与地图组是否真解耦
+- **她的尺度题**：small lightbox 过关线=画面占比真的小
+- **金丝雀多 seed（≥3）为关键判决标配**；单 seed 卷只记趋势不下因果
+
 ## 6. 已知待修（v2 语料清单）
 
 - 巨屏美女泛滥 → 补"纯图案巨幕"样本
